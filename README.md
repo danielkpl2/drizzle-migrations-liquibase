@@ -312,6 +312,29 @@ CREATE TABLE IF NOT EXISTS "users" (
 
 See [MIGRATION-FORMAT.md](./MIGRATION-FORMAT.md) for the complete format specification and conversion guide.
 
+### Rollback quirk with `DO $$ BEGIN...END $$` blocks
+
+A quirk of the Liquibase Formatted SQL parser: the **forward** direction handles `DO $$ BEGIN...END $$` blocks fine, but **inline rollbacks** can trip Liquibase up because the `--rollback` comment format, semicolons, and `END $$` delimiters interact poorly:
+
+```sql
+--rollback DO $$ BEGIN
+--rollback  ALTER TABLE "orders" DROP CONSTRAINT IF EXISTS "orders_user_id_product_id_unique";
+--rollback EXCEPTION
+--rollback  WHEN undefined_object THEN null;
+--rollback END $$;
+--rollback --> statement-breakpoint
+```
+
+Liquibase sees the semicolons inside the block as statement boundaries and gets confused by the mismatched `DO`/`END` nesting.
+
+**Workarounds** (pick one):
+
+1. **Avoid `DO...END` in rollbacks** — use simpler SQL that doesn't need exception handling (e.g. `ALTER TABLE ... DROP CONSTRAINT IF EXISTS` works without a `DO` block in most cases)
+2. **Use an XML wrapper with a separate rollback file** — see the section below, which sidesteps the Formatted SQL parser entirely
+3. **Use a pure XML changeset** — write the rollback as `<sql>` inside an XML `<rollback>` element
+
+This only affects rollback commands in `.sql` migrations — if you never roll back, or your rollbacks are simple `DROP` statements, you won't encounter this.
+
 ### Alternative: External Rollback Files (XML Wrapper)
 
 By default, rollback SQL is written **inline** in the migration file using `--rollback` comments. This keeps everything self-contained and works with all Liquibase editions.
@@ -522,7 +545,7 @@ If you have existing Drizzle Kit migrations and want an AI model (ChatGPT, Claud
 AI-CONVERSION-GUIDE.md
 ```
 
-This file contains the complete rule set, transformation table, rollback mappings, and worked examples that an AI needs to mechanically convert any Drizzle Kit `.sql` migration into a Liquibase-formatted file with proper rollback support.
+This file contains the complete rule set, transformation table, rollback mappings, and worked examples that an AI needs to convert any Drizzle Kit `.sql` migration into a Liquibase-formatted file with proper rollback support.
 
 **Usage**: Paste or attach [AI-CONVERSION-GUIDE.md](./AI-CONVERSION-GUIDE.md) into your AI conversation along with your Drizzle Kit migration files. The AI will output correctly formatted Liquibase SQL files and the `master-changelog.xml` entries.
 
