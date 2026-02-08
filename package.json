@@ -1,0 +1,78 @@
+{
+  "name": "drizzle-migrations-liquibase",
+  "version": "1.0.0",
+  "description": "Bridge between Drizzle ORM and Liquibase migrations — delegate all migration management to Liquibase while continuing to use Drizzle ORM for your schemas and queries.",
+  "type": "module",
+  "keywords": [
+    "drizzle",
+    "drizzle-orm",
+    "liquibase",
+    "migrations",
+    "postgresql",
+    "database",
+    "schema",
+    "diff",
+    "migration-generator"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Daniel Kasprowicz",
+    "url": "https://github.com/danielkpl2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielkpl2/drizzle-migrations-liquibase"
+  },
+  "bugs": {
+    "url": "https://github.com/danielkpl2/drizzle-migrations-liquibase/issues"
+  },
+  "homepage": "https://github.com/danielkpl2/drizzle-migrations-liquibase#readme",
+  "bin": {
+    "drizzle-liquibase": "./bin/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./generate": "./src/generate.mjs",
+    "./ast-parser": "./src/ast-parser.mjs",
+    "./runner": "./src/runner.mjs",
+    "./config": "./src/config.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "templates/",
+    "MIGRATION-FORMAT.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "generate": "node bin/cli.mjs generate",
+    "generate:reverse": "node bin/cli.mjs generate --reverse",
+    "update": "node bin/cli.mjs update",
+    "status": "node bin/cli.mjs status",
+    "validate": "node bin/cli.mjs validate",
+    "rollback": "node bin/cli.mjs rollback",
+    "history": "node bin/cli.mjs history",
+    "init": "node bin/cli.mjs init"
+  },
+  "dependencies": {
+    "pg": "^8.16.0",
+    "ts-morph": "^25.0.0"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.30.0",
+    "liquibase": "^4.28.0"
+  },
+  "peerDependenciesMeta": {
+    "liquibase": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "drizzle-orm": "^0.44.0",
+    "liquibase": "^4.28.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

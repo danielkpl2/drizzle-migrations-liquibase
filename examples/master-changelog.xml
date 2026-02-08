@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Include all SQL migration files in chronological order -->
+    <include file="migrations/20250705123138_create_users_table.sql"/>
+    <include file="migrations/20250710092120_create_products_table.sql"/>
+    <include file="migrations/20250722054429_create_orders_table.sql"/>
+    <include file="migrations/20250801054943_add_phone_and_avatar_to_users.sql"/>
+</databaseChangeLog>

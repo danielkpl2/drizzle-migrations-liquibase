@@ -1,0 +1,23 @@
+{
+  "name": "example-nextjs-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Example Next.js project demonstrating drizzle-migrations-liquibase",
+  "scripts": {
+    "test": "node test/run-all.mjs",
+    "test:ast": "node test/01-ast-parser.test.mjs",
+    "test:comparison": "node test/02-schema-comparison.test.mjs",
+    "test:sql": "node test/03-sql-generation.test.mjs",
+    "test:migration-file": "node test/04-migration-file.test.mjs",
+    "test:config": "node test/05-config.test.mjs",
+    "dev": "echo 'This is a test-only example project — no server needed'"
+  },
+  "dependencies": {
+    "drizzle-migrations-liquibase": "file:../../",
+    "drizzle-orm": "^0.44.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
