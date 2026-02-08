@@ -41,6 +41,7 @@
     "bin/",
     "src/",
     "templates/",
+    "AI-CONVERSION-GUIDE.md",
     "MIGRATION-FORMAT.md",
     "README.md",
     "LICENSE"

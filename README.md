@@ -470,6 +470,22 @@ npx drizzle-liquibase update
 
 ---
 
+## AI-Assisted Migration Conversion
+
+If you have existing Drizzle Kit migrations and want an AI model (ChatGPT, Claude, Copilot, etc.) to convert them to Liquibase format, point it at:
+
+```
+AI-CONVERSION-GUIDE.md
+```
+
+This file contains the complete rule set, transformation table, rollback mappings, and worked examples that an AI needs to mechanically convert any Drizzle Kit `.sql` migration into a Liquibase-formatted file with proper rollback support.
+
+**Usage**: Paste or attach [AI-CONVERSION-GUIDE.md](./AI-CONVERSION-GUIDE.md) into your AI conversation along with your Drizzle Kit migration files. The AI will output correctly formatted Liquibase SQL files and the `master-changelog.xml` entries.
+
+See also [MIGRATION-FORMAT.md](./MIGRATION-FORMAT.md) for the full format specification.
+
+---
+
 ## Team Workflow
 
 The key advantage of this setup is **parallel migration generation**:
