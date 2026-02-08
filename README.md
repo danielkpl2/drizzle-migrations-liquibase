@@ -1,10 +1,10 @@
 # drizzle-migrations-liquibase
 
-**Bridge between [Drizzle ORM](https://orm.drizzle.team/) and [Liquibase](https://www.liquibase.com/)** — keep using Drizzle for your schemas and queries, delegate all migration management to Liquibase.
+**Eliminates Drizzle migration conflicts in team environments** by bridging [Drizzle ORM](https://orm.drizzle.team/) with [Liquibase](https://www.liquibase.com/) — keep using Drizzle for schemas and queries, delegate migration management to a battle-tested system.
 
 ## Why?
 
-Drizzle Kit's built-in migration system relies on a **journal file** and a **linked-list** structure where each migration references the previous one. This works fine for solo developers, but quickly becomes **chaotic in teams**:
+Drizzle Kit's built-in migration system relies on a **journal file** and a **linked-list** structure where each migration references the previous one. This works fine for solo developers, but quickly becomes **chaotic in teams** ([discussion](https://github.com/drizzle-team/drizzle-orm/discussions/2832)):
 
 - Multiple developers generating migrations in parallel creates conflicts
 - Journal entries must be regenerated when migrations are reordered or merged
@@ -50,7 +50,7 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 - 📋 **Master changelog** — automatically maintained XML changelog
 - 🔧 **Three Liquibase modes** — node (npm package), CLI (system binary), or Docker
 - 🔒 **Security** — SQL identifier escaping, injection prevention, input validation
-- 🌳 **AST-based parsing** — uses ts-morph to accurately parse Drizzle schema files (not regex)
+- 🌳 **AST-based parsing** — uses ts-morph to accurately parse Drizzle schema files
 - 🐘 **PostgreSQL** — tested and optimised for PostgreSQL (the only supported database currently)
 
 ## Quick Start
