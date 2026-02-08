@@ -1,4 +1,4 @@
-# Liquibase SQL Migration Format (for AI and Developers)
+# Liquibase SQL Migration Format
 
 This document describes the **exact format** required for Liquibase-compatible SQL migration files used by `drizzle-migrations-liquibase`. Use this as a reference when converting Drizzle Kit migrations or writing new migrations by hand.
 

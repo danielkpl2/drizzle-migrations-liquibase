@@ -57,9 +57,12 @@ After one blank line, add:
 ```
 
 - **`<author>`**: The git email, username, or configured author name. If unknown, use `migration`.
-- **`<changeset_id>`**: Derived from the migration filename, without the numeric prefix and extension.
-  - `0001_cool_name.sql` → `cool_name`
-  - `0042_add_user_roles.sql` → `add_user_roles`
+- **`<changeset_id>`**: A **descriptive** snake_case name summarising the migration's SQL content.
+  Drizzle Kit auto-generates opaque or random names (e.g. `cool_name`, `mighty_blob`, `shiny_wasp`).
+  **Do NOT use these.** Instead, read the SQL statements and derive a meaningful name:
+  - `0001_cool_name.sql` containing `CREATE TABLE "users"` → `create_users_table`
+  - `0003_mighty_blob.sql` containing `ADD COLUMN "phone"` + `ADD COLUMN "avatar_url"` on `"users"` → `add_phone_and_avatar_to_users`
+  - `0042_add_user_roles.sql` → `add_user_roles` (already descriptive — keep as-is)
 - **`splitStatements:false`** and **`endDelimiter:--> statement-breakpoint`** are always required, verbatim.
 
 ### Rule 3: Statement Separator
@@ -151,9 +154,22 @@ Rename the file:
 ```
 
 - **Timestamp**: `YYYYMMDDHHmmss` format using the current date/time. If converting a batch, increment by 1 second per file to maintain order.
-- **Original name**: Take the Drizzle Kit name portion (after the numeric prefix), keep it snake_case.
-  - `0001_cool_name.sql` → `20250710092120_cool_name.sql`
-  - `0042_add_user_roles.sql` → `20250710092121_add_user_roles.sql`
+- **Descriptive name**: Drizzle Kit often generates random/opaque names (`cool_name`, `mighty_blob`, `shiny_wasp`).
+  **Replace these with a descriptive snake_case name** derived from the SQL content of the migration.
+  If the original name is already descriptive, keep it.
+  - `0001_cool_name.sql` (creates `users` table) → `20250710092120_create_users_table.sql`
+  - `0003_mighty_blob.sql` (adds columns to `users`) → `20250710092122_add_phone_and_avatar_to_users.sql`
+  - `0042_add_user_roles.sql` (already descriptive) → `20250710092121_add_user_roles.sql`
+
+  **Naming heuristics** (in priority order):
+  1. `CREATE TABLE "x"` → `create_x_table`
+  2. `ADD COLUMN` on `"x"` → `add_<columns>_to_x`
+  3. `ALTER COLUMN` on `"x"` → `alter_<columns>_in_x`
+  4. `DROP TABLE "x"` → `drop_x_table`
+  5. `CREATE INDEX` / `ADD CONSTRAINT` → `add_indexes_to_x` or `add_constraints_to_x`
+  6. `CREATE POLICY` → `add_rls_policies_to_x`
+  7. Mixed operations → pick the most significant operation for the name
+  8. If the original Drizzle Kit name is already descriptive (contains a verb + noun), keep it
 
 ### Rule 8: One Changeset Per File (Default)
 
@@ -448,3 +464,36 @@ When converting multiple Drizzle Kit migration files at once:
 4. **Already idempotent SQL**: If input already has `IF NOT EXISTS` / `IF EXISTS`, don't duplicate it.
 5. **Multiple schemas**: If the input references schemas other than `public`, preserve the schema qualifiers.
 6. **Drizzle Kit metadata comments**: Lines like `-- Custom SQL migration file` can be removed or kept — they're harmless.
+
+---
+
+## Other Liquibase Changelog Formats
+
+This guide focuses on **Formatted SQL** because it's the most natural fit for Drizzle Kit migrations
+(SQL in → SQL out). However, Liquibase supports **four changelog formats**:
+
+| Format | Extension | Best For |
+|--------|-----------|----------|
+| **SQL** | `.sql` | Direct SQL migrations (what this guide produces) |
+| **XML** | `.xml` | Full Liquibase feature set, cross-database portability |
+| **YAML** | `.yaml` | Human-readable alternative to XML |
+| **JSON** | `.json` | Programmatic generation / CI pipelines |
+
+All four formats support the same features (changesets, rollbacks, preconditions, contexts, labels).
+The master changelog (`master-changelog.xml`) can include files of **any** format — you can mix
+SQL migration files with XML/YAML/JSON changelogs in the same project.
+
+For full details on each format, see the [Liquibase Changelog documentation](https://docs.liquibase.com/concepts/changelogs/home.html).
+
+---
+
+## Liquibase Documentation References
+
+- **Formatted SQL changelogs**: https://docs.liquibase.com/concepts/changelogs/sql-format.html
+- **Changelog formats (XML, YAML, JSON, SQL)**: https://docs.liquibase.com/concepts/changelogs/home.html
+- **Rollback workflows**: https://docs.liquibase.com/workflows/liquibase-community/using-rollback.html
+- **`rollbackSqlFile` (Pro)**: https://docs.liquibase.com/concepts/changelogs/sql-format.html#rollbackSqlFile
+- **`sqlFile` Change Type**: https://docs.liquibase.com/change-types/sql-file.html
+- **Changeset attributes**: https://docs.liquibase.com/concepts/changelogs/sql-format.html#changeset
+- **Preconditions**: https://docs.liquibase.com/concepts/changelogs/preconditions.html
+- **Supported databases**: https://www.liquibase.org/get-started/databases

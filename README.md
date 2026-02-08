@@ -312,6 +312,50 @@ CREATE TABLE IF NOT EXISTS "users" (
 
 See [MIGRATION-FORMAT.md](./MIGRATION-FORMAT.md) for the complete format specification and conversion guide.
 
+### Alternative: External Rollback Files (XML Wrapper)
+
+By default, rollback SQL is written **inline** in the migration file using `--rollback` comments. This keeps everything self-contained and works with all Liquibase editions.
+
+For complex rollbacks (stored procedures, large data fixups), you can put the rollback SQL in a **separate file** by using an XML changeset that references both the forward and rollback SQL via `<sqlFile>`:
+
+**XML changeset** (`migrations/20250710092120_create_users_table.xml`):
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet author="daniel" id="create_users_table">
+        <sqlFile path="sql/20250710092120_create_users_table.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/20250710092120_create_users_table_rollback.sql" relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>
+```
+
+**Forward SQL** (`migrations/sql/20250710092120_create_users_table.sql`):
+```sql
+CREATE TABLE IF NOT EXISTS "users" (
+    "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+    "email" varchar(255) NOT NULL
+);
+```
+
+**Rollback SQL** (`migrations/rollback/20250710092120_create_users_table_rollback.sql`):
+```sql
+DROP TABLE IF EXISTS "users";
+```
+
+Then reference the XML file in your `master-changelog.xml`:
+```xml
+<include file="migrations/20250710092120_create_users_table.xml"/>
+```
+
+> **Tip**: The master changelog can mix `.sql` and `.xml` includes — use inline `--rollback` for simple migrations and XML wrappers when you want external rollback files. This approach works with **all Liquibase editions** (Open Source and Pro). See the [Liquibase `sqlFile` docs](https://docs.liquibase.com/change-types/sql-file.html) for all available parameters.
+
 ## Reverse Mode
 
 Generate migrations for objects that exist in the database but aren't in your Drizzle schema:
@@ -483,6 +527,8 @@ This file contains the complete rule set, transformation table, rollback mapping
 **Usage**: Paste or attach [AI-CONVERSION-GUIDE.md](./AI-CONVERSION-GUIDE.md) into your AI conversation along with your Drizzle Kit migration files. The AI will output correctly formatted Liquibase SQL files and the `master-changelog.xml` entries.
 
 See also [MIGRATION-FORMAT.md](./MIGRATION-FORMAT.md) for the full format specification.
+
+> **Note**: This package generates **Formatted SQL** changelogs, but Liquibase also supports XML, YAML, and JSON formats — all with the same features. See the [Liquibase documentation](https://docs.liquibase.com/concepts/changelogs/home.html) for details.
 
 ---
 
