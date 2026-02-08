@@ -14,12 +14,12 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { ASTSchemaParser } from 'drizzle-migrations-liquibase/ast-parser';
-import { SchemaDiffGenerator } from 'drizzle-migrations-liquibase/generate';
+import { ASTSchemaParser } from '../src/ast-parser.mjs';
+import { SchemaDiffGenerator } from '../src/generate.mjs';
 import { suite, assert, eq, includes, gt, summary } from './helpers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const schemaDir = join(__dirname, '..', 'src', 'db', 'schema');
+const schemaDir = join(__dirname, 'fixtures', 'schema');
 
 // Parse real Drizzle schemas so we have realistic input
 const parser = new ASTSchemaParser();

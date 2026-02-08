@@ -15,11 +15,11 @@ import {
   parseDatabaseUrl,
   rewriteJdbcForDocker,
   formatTimestamp,
-} from 'drizzle-migrations-liquibase/config';
+} from '../src/config.mjs';
 import { suite, assert, eq, includes, summary } from './helpers.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = join(__dirname, '..');
+const fixturesRoot = join(__dirname, 'fixtures');
 
 // ─── parseDatabaseUrl ───────────────────────────────────────────
 
@@ -132,11 +132,11 @@ suite('formatTimestamp — edge: midnight');
 
 // ─── loadConfig ─────────────────────────────────────────────────
 
-suite('loadConfig — reads example project config');
+suite('loadConfig — reads fixtures config');
 {
-  const config = await loadConfig(projectRoot);
+  const config = await loadConfig(fixturesRoot);
   assert(config.schemaDir !== null, 'schemaDir set');
-  assert(config.schemaDir.endsWith('src/db/schema'), 'schemaDir resolved');
+  assert(config.schemaDir.endsWith('schema'), 'schemaDir resolved');
   eq(config.author, 'test-user', 'author from config');
   eq(config.diff.includePolicies, true, 'includePolicies');
   eq(config.diff.modifyPolicies, true, 'modifyPolicies');
@@ -149,15 +149,15 @@ suite('loadConfig — reads example project config');
 
 suite('loadConfig — migrationsDir resolved');
 {
-  const config = await loadConfig(projectRoot);
+  const config = await loadConfig(fixturesRoot);
   assert(config.migrationsDir.startsWith('/'), 'absolute path');
-  includes(config.migrationsDir, 'liquibase/migrations', 'migrations path');
+  includes(config.migrationsDir, 'migrations', 'migrations path');
 }
 
 suite('loadConfig — masterChangelog resolved');
 {
-  const config = await loadConfig(projectRoot);
-  includes(config.masterChangelog, 'liquibase/master-changelog.xml', 'changelog path');
+  const config = await loadConfig(fixturesRoot);
+  includes(config.masterChangelog, 'master-changelog.xml', 'changelog path');
 }
 
 suite('loadConfig — defaults applied for missing keys');

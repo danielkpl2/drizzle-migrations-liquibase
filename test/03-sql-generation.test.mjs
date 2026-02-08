@@ -13,7 +13,7 @@
  *   - Matching rollback statements
  */
 
-import { SchemaDiffGenerator } from 'drizzle-migrations-liquibase/generate';
+import { SchemaDiffGenerator } from '../src/generate.mjs';
 import { suite, assert, eq, includes, gt, summary } from './helpers.mjs';
 
 // Utility — create a minimal generator instance (no DB)

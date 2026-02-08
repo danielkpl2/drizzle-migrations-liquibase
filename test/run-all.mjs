@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Run all example-project tests in order and report aggregate results.
+ * Run all tests in order and report aggregate results.
  *
  * Usage:
  *   node test/run-all.mjs          — run all suites
  *   node test/run-all.mjs 01 03    — run only suites 01 and 03
+ *   node test/run-all.mjs ast      — run suites matching "ast"
  */
 
 import { execSync } from 'child_process';
@@ -15,17 +16,20 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const ALL_SUITES = [
-  { file: '01-ast-parser.test.mjs', label: 'AST Schema Parser' },
+  { file: 'ast-parser.test.mjs', label: 'AST Parser (inline schemas)' },
+  { file: '01-ast-parser.test.mjs', label: 'AST Parser (real schemas)' },
   { file: '02-schema-comparison.test.mjs', label: 'Schema Comparison' },
   { file: '03-sql-generation.test.mjs', label: 'SQL Generation' },
   { file: '04-migration-file.test.mjs', label: 'Migration File & Changelog' },
   { file: '05-config.test.mjs', label: 'Config Loader & Helpers' },
 ];
 
-// Allow filtering by suite number prefix
+// Allow filtering by suite number prefix or keyword
 const args = process.argv.slice(2);
 const suites = args.length
-  ? ALL_SUITES.filter((s) => args.some((a) => s.file.startsWith(a)))
+  ? ALL_SUITES.filter((s) =>
+      args.some((a) => s.file.startsWith(a) || s.file.includes(a))
+    )
   : ALL_SUITES;
 
 console.log('╔══════════════════════════════════════════════════════════╗');

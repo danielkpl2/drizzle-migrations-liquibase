@@ -54,7 +54,8 @@
     "validate": "node bin/cli.mjs validate",
     "rollback": "node bin/cli.mjs rollback",
     "history": "node bin/cli.mjs history",
-    "init": "node bin/cli.mjs init"
+    "init": "node bin/cli.mjs init",
+    "test": "node test/run-all.mjs"
   },
   "dependencies": {
     "pg": "^8.16.0",

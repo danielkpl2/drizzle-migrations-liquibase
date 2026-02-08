@@ -5,16 +5,10 @@
   "type": "module",
   "description": "Example Next.js project demonstrating drizzle-migrations-liquibase",
   "scripts": {
-    "test": "node test/run-all.mjs",
-    "test:ast": "node test/01-ast-parser.test.mjs",
-    "test:comparison": "node test/02-schema-comparison.test.mjs",
-    "test:sql": "node test/03-sql-generation.test.mjs",
-    "test:migration-file": "node test/04-migration-file.test.mjs",
-    "test:config": "node test/05-config.test.mjs",
-    "dev": "echo 'This is a test-only example project — no server needed'"
+    "dev": "echo 'This is an example project — see root test/ for tests'"
   },
   "dependencies": {
-    "drizzle-migrations-liquibase": "file:../../",
+    "drizzle-migrations-liquibase": "^1.0.0",
     "drizzle-orm": "^0.44.0",
     "next": "^15.0.0",
     "react": "^19.0.0",

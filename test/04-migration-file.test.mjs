@@ -14,7 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { SchemaDiffGenerator } from 'drizzle-migrations-liquibase/generate';
+import { SchemaDiffGenerator } from '../src/generate.mjs';
 import { suite, assert, eq, includes, gt, summary } from './helpers.mjs';
 
 // Create a temp workspace for each run
