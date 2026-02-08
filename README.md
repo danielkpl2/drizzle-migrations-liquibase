@@ -50,6 +50,7 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 - 📋 **Master changelog** — automatically maintained XML changelog
 - 🔧 **Three Liquibase modes** — node (npm package), CLI (system binary), or Docker
 - 🔒 **Security** — SQL identifier escaping, injection prevention, input validation
+- 🌳 **AST-based parsing** — uses ts-morph to accurately parse Drizzle schema files (not regex)
 - 🐘 **PostgreSQL** — tested and optimised for PostgreSQL (the only supported database currently)
 
 ## Quick Start
@@ -527,7 +528,7 @@ await runLiquibase('rollbackCount', ['1'], { projectRoot: '/path/to/project' });
 ## Limitations
 
 - **PostgreSQL only** — the schema introspection and SQL generation are PostgreSQL-specific
-- **Schema parsing is regex-based** — it reads your TypeScript schema files as text (doesn't compile them), so very complex/dynamic schema definitions may not be parsed correctly
+- **AST-based schema parsing** — uses [ts-morph](https://github.com/dsherret/ts-morph) to parse your TypeScript schema files (not regex). Handles `.enableRLS` chains, all constraint callback forms (array, object, block-body), cross-file references, and self-referencing foreign keys. However, fully dynamic schemas (e.g. programmatically-generated `pgTable()` calls) are not supported.
 - **Enum types** — currently treated as `varchar` for comparison purposes (values are not diffed)
 - **Custom SQL** — triggers, functions, and other database objects not defined via `pgTable()` are not detected by the diff engine (use `--reverse` mode or manual migrations)
 
