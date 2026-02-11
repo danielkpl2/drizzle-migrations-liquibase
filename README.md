@@ -1,5 +1,7 @@
 # drizzle-migrations-liquibase
 
+> ⚠️ **currently PostgreSQL only**
+
 **Eliminates Drizzle migration conflicts in team environments** by bridging [Drizzle ORM](https://orm.drizzle.team/) with [Liquibase](https://www.liquibase.com/) — keep using Drizzle for schemas and queries, delegate migration management to a battle-tested system.
 
 ## Why?

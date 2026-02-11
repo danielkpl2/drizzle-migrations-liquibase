@@ -1,13 +1,14 @@
 {
   "name": "drizzle-migrations-liquibase",
   "version": "1.0.0",
-  "description": "Bridge between Drizzle ORM and Liquibase migrations — delegate all migration management to Liquibase while continuing to use Drizzle ORM for your schemas and queries.",
+  "description": "Eliminates Drizzle migration conflicts in team environments — bridges Drizzle ORM with Liquibase migration engine.",
   "type": "module",
   "keywords": [
     "drizzle",
     "drizzle-orm",
     "liquibase",
     "migrations",
+    "rollbacks",
     "postgresql",
     "database",
     "schema",
