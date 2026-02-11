@@ -27,14 +27,14 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 
 ```
 ┌─────────────────┐     ┌──────────────────────┐     ┌────────────────┐
-│  Drizzle Schema │────▶│  Schema Diff Engine   │────▶│  Liquibase SQL │
-│  (*.ts files)   │     │  (compares schema     │     │  Migration     │
-│                 │     │   vs live database)   │     │  (with rollback)│
+│  Drizzle Schema │────▶│  Schema Diff Engine  │────▶│  Liquibase SQL │
+│  (*.ts files)   │     │  (compares schema    │     │  Migration     │
+│                 │     │   vs live database)  │     │ (with rollback)│
 └─────────────────┘     └──────────────────────┘     └────────┬───────┘
                                                               │
 ┌─────────────────┐     ┌──────────────────────┐              │
 │  PostgreSQL DB  │◀────│  Liquibase Runner    │◀─────────────┘
-│                 │     │  (node/cli/docker)    │
+│                 │     │  (node/cli/docker)   │
 └─────────────────┘     └──────────────────────┘
 ```
 
