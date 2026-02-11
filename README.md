@@ -47,7 +47,7 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 ## Features
 
 - 🔄 **Auto-diff** — detects tables, columns, indexes, foreign keys, unique constraints, and RLS policies
-- ↕️ **Bidirectional** — normal mode (schema → DB) and reverse mode (DB → schema)
+- ↕️ **Bidirectional** — schema-first (schema → DB) and reverse mode database-first (DB → schema)
 - 📝 **Rollback generation** — automatic rollback SQL for every change
 - 📋 **Master changelog** — automatically maintained XML changelog
 - 🔧 **Three Liquibase modes** — node (npm package), CLI (system binary), or Docker
