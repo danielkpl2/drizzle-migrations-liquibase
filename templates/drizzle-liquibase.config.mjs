@@ -4,7 +4,7 @@
  * This file configures the bridge between Drizzle ORM and Liquibase.
  * Copy this to your project root as: drizzle-liquibase.config.mjs
  *
- * @see https://github.com/your-org/drizzle-migrations-liquibase
+ * @see https://github.com/danielkpl2/drizzle-migrations-liquibase
  */
 export default {
   // =========================================================================

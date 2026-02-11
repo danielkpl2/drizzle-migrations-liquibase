@@ -681,6 +681,7 @@ export class SchemaDiffGenerator {
 
   _compareIndexesReverse(drizzleTable, dbTable) {
     const toAdd = [];
+    if (!this.options.dropOrphanIndexes) return { toAdd };
     const dbIndexes = this._parseDbIndexes(dbTable);
     const drizzleIdxMap = new Map(drizzleTable.indexes.map((i) => [i.name, i]));
     dbIndexes.forEach((dbIdx) => {
@@ -731,6 +732,7 @@ export class SchemaDiffGenerator {
 
   _compareUniquesReverse(drizzleTable, dbTable) {
     const toAdd = [];
+    if (!this.options.dropOrphanUniques) return { toAdd };
     const dbUniques = dbTable.uniqueConstraints || [];
     dbUniques.forEach((dbUq) => {
       const colSet = dbUq.columns.join(',');
@@ -770,7 +772,7 @@ export class SchemaDiffGenerator {
 
   _comparePoliciesReverse(drizzleTable, dbTable) {
     const toAdd = [];
-    if (this.options.includePolicies) {
+    if (this.options.includePolicies && this.options.dropOrphanPolicies) {
       const drizzleMap = new Map(drizzleTable.policies.map((p) => [p.name, p]));
       (dbTable.policies || []).forEach((dbPol) => {
         if (!drizzleMap.has(dbPol.name)) {

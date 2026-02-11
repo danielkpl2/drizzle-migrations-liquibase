@@ -24,6 +24,35 @@ const __dirname = dirname(__filename);
 const packageRoot = resolve(__dirname, '..');
 
 // ---------------------------------------------------------------------------
+// Load .env files (best-effort, no dependency required)
+// ---------------------------------------------------------------------------
+// Attempts to load environment variables from common dotenv files in the
+// current working directory. Priority (last wins): .env → .env.local
+// This covers Next.js, Vite, and plain dotenv conventions.
+// If none exist or readFileSync fails, we silently continue.
+
+const cwd = process.cwd();
+for (const envFile of ['.env', '.env.local']) {
+  try {
+    const envPath = join(cwd, envFile);
+    const content = readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  } catch {
+    // File doesn't exist or can't be read — that's fine
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Parse CLI arguments
 // ---------------------------------------------------------------------------
 
@@ -46,6 +75,31 @@ switch (command) {
   case 'generate':
     await runGenerate(rawArgs.slice(1));
     break;
+  case 'rollbackCount':
+    await runLiquibaseCommand('rollbackCount', rawArgs.slice(1));
+    break;
+  case 'rollbackTag':
+    await runLiquibaseCommand('rollback', rawArgs.slice(1));
+    break;
+  case 'rollbackToDate':
+    await runLiquibaseCommand('rollbackToDate', rawArgs.slice(1));
+    break;
+  case 'rollback': {
+    // Smart shorthand:
+    //   numeric        → rollbackCount (e.g. "3")
+    //   date-like      → rollbackToDate (e.g. "2025-01-15" or "2025-01-15 10:30:00")
+    //   anything else  → rollback to tag
+    const rollbackArgs = rawArgs.slice(1);
+    const target = rollbackArgs[0];
+    if (target && /^\d+$/.test(target)) {
+      await runLiquibaseCommand('rollbackCount', rollbackArgs);
+    } else if (target && /^\d{4}-\d{2}-\d{2}/.test(target)) {
+      await runLiquibaseCommand('rollbackToDate', rollbackArgs);
+    } else {
+      await runLiquibaseCommand('rollback', rollbackArgs);
+    }
+    break;
+  }
   default:
     // Pass-through to Liquibase runner
     await runLiquibaseCommand(command, rawArgs.slice(1));
@@ -163,7 +217,10 @@ Commands:
   update                       Apply all pending migrations
   status                       Show pending / applied migration status
   validate                     Validate the master changelog
-  rollback <count>             Rollback the last N changesets
+  rollback <count|tag|date>     Smart rollback (number → by count, date → by date, string → by tag)
+  rollbackCount <count>        Rollback the last N changesets
+  rollbackTag <tag>            Rollback to a named tag
+  rollbackToDate <date>        Rollback to a date (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")
   history                      Show applied migration history
   tag <name>                   Tag the current database state
   updateSQL                    Preview the SQL that would be executed
@@ -187,7 +244,7 @@ Examples:
 function getDefaultConfigTemplate() {
   return `/**
  * drizzle-migrations-liquibase configuration
- * @see https://github.com/your-org/drizzle-migrations-liquibase
+ * @see https://github.com/danielkpl2/drizzle-migrations-liquibase
  */
 export default {
   // REQUIRED — path to your Drizzle schema directory (contains index.ts with exports)

@@ -58,17 +58,19 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 ### 1. Install
 
 ```bash
-npm install drizzle-migrations-liquibase
+npm install -D drizzle-migrations-liquibase
 # or
-pnpm add drizzle-migrations-liquibase
+pnpm add -D drizzle-migrations-liquibase
 # or
-yarn add drizzle-migrations-liquibase
+yarn add -D drizzle-migrations-liquibase
 ```
+
+> **Dev dependency**: This package is only needed during development and CI/CD — it does not need to be installed in production.
 
 > **Peer dependency**: You also need `drizzle-orm` installed. The `liquibase` npm package is optional — only needed if you use `liquibaseMode: 'node'` (the default).
 
 ```bash
-npm install drizzle-orm liquibase
+npm install -D liquibase
 ```
 
 ### 2. Initialise
@@ -160,10 +162,39 @@ export const users = pgTable('users', {
 | `npx drizzle-liquibase update` | Apply all pending migrations |
 | `npx drizzle-liquibase status` | Show pending/applied migration status |
 | `npx drizzle-liquibase validate` | Validate the master changelog |
-| `npx drizzle-liquibase rollback <count>` | Rollback the last N changesets |
+| `npx drizzle-liquibase rollback <count\|tag\|date>` | Smart rollback (see below) |
+| `npx drizzle-liquibase rollbackCount <N>` | Rollback the last N changesets |
+| `npx drizzle-liquibase rollbackTag <tag>` | Rollback to a named tag |
+| `npx drizzle-liquibase rollbackToDate <date>` | Rollback to a date/time |
 | `npx drizzle-liquibase history` | Show applied migration history |
 | `npx drizzle-liquibase tag <name>` | Tag current database state |
 | `npx drizzle-liquibase updateSQL` | Preview SQL without executing |
+
+### Rollback
+
+The `rollback` command is a smart shorthand that detects the argument type:
+
+```bash
+# By count — rolls back the last N changesets
+npx drizzle-liquibase rollback 3
+
+# By date — rolls back to a specific date (YYYY-MM-DD or "YYYY-MM-DD HH:MM:SS")
+npx drizzle-liquibase rollback 2025-01-15
+npx drizzle-liquibase rollback "2025-01-15 10:30:00"
+
+# By tag — rolls back to a named tag
+npx drizzle-liquibase rollback v1.2
+```
+
+Explicit commands are also available if you prefer to be unambiguous:
+
+```bash
+npx drizzle-liquibase rollbackCount 3
+npx drizzle-liquibase rollbackTag v1.2
+npx drizzle-liquibase rollbackToDate "2025-01-15 10:30:00"
+```
+
+> **Tip**: Run `npx drizzle-liquibase history` first to see applied migrations and their dates before rolling back.
 
 ### Package.json scripts (optional)
 
@@ -233,6 +264,53 @@ export default {
   },
 }
 ```
+
+### Schema Diff Options
+
+The `diff` object controls what the diff engine detects and generates. The defaults are deliberately conservative — they'll add new objects but won't drop anything that exists in the database but not in your schema. This prevents accidentally nuking indexes, constraints, or policies that were created manually or by other tools (e.g. Supabase Dashboard, raw SQL scripts).
+
+| Flag | Default | Purpose |
+|------|---------|---------|
+| `includePolicies` | `true` | Include RLS policies in the diff. When `true`, policies defined in your Drizzle schema but missing from the DB will be generated as `CREATE POLICY` statements. Set to `false` if you manage RLS policies entirely outside of Drizzle. |
+| `modifyPolicies` | `false` | Detect and generate `ALTER` for policies that exist in both schema and DB but differ. Disabled by default because policy expressions are hard to diff semantically (whitespace, casting, parentheses can all cause false positives). |
+| `dropOrphanPolicies` | `false` | Generate `DROP POLICY` for policies that exist in the DB but aren't defined in your Drizzle schema. **Use with caution** — databases often have policies created via Supabase Dashboard or raw SQL that aren't in your schema files. |
+| `dropOrphanIndexes` | `false` | Generate `DROP INDEX` for indexes that exist in the DB but aren't in your schema. Useful if you want strict schema-as-source-of-truth, but be careful — some indexes are created by extensions or tools outside of Drizzle. |
+| `dropOrphanUniques` | `false` | Generate `DROP CONSTRAINT` for unique constraints in the DB that aren't in your schema. Same caution as above. |
+
+These flags apply to both **forward** and **reverse** mode consistently:
+
+- **Forward mode** (`generate`): `dropOrphan*` flags control whether DB-only objects appear as `DROP` statements
+- **Reverse mode** (`generate --reverse`): `dropOrphan*` flags control whether DB-only objects appear as `CREATE` statements (documenting what's in the DB but not the schema)
+
+#### Recommended settings
+
+For most teams, the defaults are the right choice — add what's missing, don't touch what you didn't define:
+
+```js
+// Conservative (default) — safe for projects with manually-managed DB objects
+diff: {
+  includePolicies: true,
+  modifyPolicies: false,
+  dropOrphanPolicies: false,
+  dropOrphanIndexes: false,
+  dropOrphanUniques: false,
+}
+```
+
+If your Drizzle schema is the **single source of truth** and every index, constraint, and policy is defined there, you can turn on strict mode:
+
+```js
+// Strict — schema is the complete source of truth
+diff: {
+  includePolicies: true,
+  modifyPolicies: true,
+  dropOrphanPolicies: true,
+  dropOrphanIndexes: true,
+  dropOrphanUniques: true,
+}
+```
+
+> **Tip**: If you're unsure whether orphan objects exist, run `generate --reverse` with the flags enabled first to see what would be affected — review the generated migration before applying anything.
 
 ### Database URL
 

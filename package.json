@@ -28,7 +28,8 @@
   },
   "homepage": "https://github.com/danielkpl2/drizzle-migrations-liquibase#readme",
   "bin": {
-    "drizzle-liquibase": "./bin/cli.mjs"
+    "drizzle-liquibase": "./bin/cli.mjs",
+    "drizzle-migrations-liquibase": "./bin/cli.mjs"
   },
   "exports": {
     ".": "./src/index.mjs",
