@@ -22,6 +22,7 @@ const ALL_SUITES = [
   { file: '03-sql-generation.test.mjs', label: 'SQL Generation' },
   { file: '04-migration-file.test.mjs', label: 'Migration File & Changelog' },
   { file: '05-config.test.mjs', label: 'Config Loader & Helpers' },
+  { file: '06-type-mappings.test.mjs', label: 'Data Type Mappings' },
 ];
 
 // Allow filtering by suite number prefix or keyword

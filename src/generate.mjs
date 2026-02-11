@@ -374,23 +374,49 @@ export class SchemaDiffGenerator {
 
   mapPostgresType(pgType, udtName) {
     const typeMap = {
+      // Numeric
       integer: 'integer',
       bigint: 'bigint',
       smallint: 'smallint',
+      numeric: 'numeric',
+      real: 'real',
+      'double precision': 'doublePrecision',
+
+      // String
       'character varying': 'varchar',
+      character: 'char',
       text: 'text',
+
+      // Boolean
       boolean: 'boolean',
+
+      // Date / Time
       'timestamp without time zone': 'timestamp',
       'timestamp with time zone': 'timestamp',
       date: 'date',
       'time without time zone': 'time',
-      numeric: 'numeric',
-      real: 'real',
-      'double precision': 'doublePrecision',
+      'time with time zone': 'time',
+      interval: 'interval',
+
+      // JSON
       json: 'json',
       jsonb: 'jsonb',
+
+      // Binary / UUID
       uuid: 'uuid',
       bytea: 'bytea',
+
+      // Network
+      inet: 'inet',
+      cidr: 'cidr',
+      macaddr: 'macaddr',
+      macaddr8: 'macaddr8',
+
+      // Geometric
+      point: 'point',
+      line: 'line',
+
+      // Enums / user-defined
       'USER-DEFINED': 'varchar',
       'user-defined': 'varchar',
     };
@@ -814,10 +840,15 @@ export class SchemaDiffGenerator {
 
   normalizeType(type) {
     const map = {
-      'character varying': 'varchar', 'timestamp without time zone': 'timestamp',
-      'timestamp with time zone': 'timestamptz', 'double precision': 'float8',
+      'character varying': 'varchar', character: 'char',
+      'timestamp without time zone': 'timestamp',
+      'timestamp with time zone': 'timestamptz',
+      'time without time zone': 'time', 'time with time zone': 'timetz',
+      'double precision': 'float8', real: 'float4',
       boolean: 'bool', integer: 'int4', bigint: 'int8', smallint: 'int2',
-      serial: 'int4', bigserial: 'int8',
+      serial: 'int4', bigserial: 'int8', smallserial: 'int2',
+      numeric: 'numeric', decimal: 'numeric',
+      doublePrecision: 'float8',
     };
     return (map[type] || type).toLowerCase();
   }
@@ -984,9 +1015,26 @@ export class SchemaDiffGenerator {
 
   _columnTypeSQL(colDef) {
     const typeMap = {
-      varchar: 'VARCHAR', text: 'TEXT', integer: 'INTEGER', serial: 'SERIAL',
-      bigint: 'BIGINT', boolean: 'BOOLEAN', timestamp: 'TIMESTAMP', date: 'DATE',
-      numeric: 'NUMERIC', jsonb: 'JSONB', json: 'JSON', uuid: 'UUID',
+      // String
+      varchar: 'VARCHAR', char: 'CHAR', text: 'TEXT',
+      // Numeric
+      integer: 'INTEGER', serial: 'SERIAL', bigint: 'BIGINT', bigserial: 'BIGSERIAL',
+      smallint: 'SMALLINT', smallserial: 'SMALLSERIAL', numeric: 'NUMERIC',
+      real: 'REAL', doublePrecision: 'DOUBLE PRECISION',
+      // Boolean
+      boolean: 'BOOLEAN',
+      // Date / Time
+      timestamp: 'TIMESTAMP', date: 'DATE', time: 'TIME', interval: 'INTERVAL',
+      // JSON
+      jsonb: 'JSONB', json: 'JSON',
+      // Binary / UUID
+      uuid: 'UUID', bytea: 'BYTEA',
+      // Network
+      inet: 'INET', cidr: 'CIDR', macaddr: 'MACADDR', macaddr8: 'MACADDR8',
+      // Geometric
+      point: 'POINT', line: 'LINE',
+      // Vector (pgvector)
+      vector: 'VECTOR',
     };
     let base = colDef.type;
     if (colDef.enumName) base = 'varchar';
