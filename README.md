@@ -472,6 +472,46 @@ This is useful for:
 
 ---
 
+## FAQ — Is It Safe to Replace Drizzle Kit Migrations?
+
+### Will this break Drizzle ORM?
+
+This package **only replaces Drizzle Kit's migration system** (`drizzle-kit generate` / `drizzle-kit migrate`). It has zero impact on how Drizzle ORM works — your schemas, queries, relations, and type inference all remain exactly the same. You keep writing `pgTable()`, `drizzle()` queries, and everything else Drizzle ORM offers. Only the migration tooling changes.
+
+### What's actually wrong with Drizzle Kit's migrations?
+
+Drizzle Kit's migration system has several significant limitations that become painful in real-world team environments:
+
+- **Journal-based linked list** — each migration references the previous one via a `_journal.json` file. Parallel development creates conflicts that require manual journal surgery.
+- **No rollback support** — there is no way to undo an applied migration. If something goes wrong in production, you're writing manual SQL.
+- **No checksum verification** — there's no way to detect if an already-applied migration file was modified after the fact.
+- **No status/history commands** — you can't easily see which migrations have been applied or what's pending.
+- **No dry-run / preview** — you can't see what SQL would be executed before running it.
+
+Liquibase addresses all of these out of the box, with 15+ years of battle-testing across thousands of teams.
+
+### Can I still use Drizzle Kit migrations alongside this?
+
+Technically both systems can coexist — they track state independently (Drizzle Kit uses `__drizzle_migrations`, Liquibase uses `databasechangelog`). However, running two migration systems against the same database is not advised.
+
+### Can I go back to Drizzle Kit later?
+
+In theory, yes — you could snapshot the current database state and generate a fresh Drizzle Kit baseline. But in practice, you'd be giving up rollbacks, checksums, status tracking, and conflict-free team workflows. Liquibase is a strictly more capable system, so there's little reason to go back.
+
+The Drizzle team may improve their migration system in the future, but it would require a fundamental redesign to match what Liquibase already provides. If that happens, it would essentially be a new system anyway.
+
+### What if Drizzle ORM changes its schema format?
+
+The only part of this package that touches Drizzle is the **schema diff generator** — the bit in the middle that reads your `pgTable()` definitions and compares them against the live database. All actual migration work (applying, rolling back, tracking, checksums) is handled entirely by Liquibase.
+
+Drizzle's `pgTable()` API has been stable since v0.30 and is the core of the ORM — it's extremely unlikely to change in a breaking way. If it ever does, only the AST parser in this package would need updating, not your migrations or Liquibase setup.
+
+### Should I keep my old Drizzle Kit migration files?
+
+Keep them archived (e.g. in a `drizzle-archive/` folder or a git tag) until you're comfortable that the Liquibase setup is working. Once you've verified with `drizzle-liquibase status` that all migrations are tracked correctly, you can safely delete the old Drizzle Kit artifacts (`drizzle/`, `drizzle/meta/`, `__drizzle_migrations` table).
+
+---
+
 ## Migrating from Drizzle Kit to Liquibase
 
 If you're currently using Drizzle Kit's built-in migration system (`drizzle-kit generate` / `drizzle-kit migrate`) and want to switch to Liquibase, follow this guide.
