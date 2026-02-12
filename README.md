@@ -759,6 +759,14 @@ This covers the types exposed by Drizzle ORM's `pg-core` module and addresses th
 
 ---
 
+## Contributors
+
+Thanks to those who have contributed code, reported bugs, and helped improve this project:
+
+- [Ken Easson](https://github.com/keneasson) — co-author, bug fixes, and testing
+
+---
+
 ## License
 
 MIT

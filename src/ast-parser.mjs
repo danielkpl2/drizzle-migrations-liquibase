@@ -156,11 +156,26 @@ export class ASTSchemaParser {
       let indexes = [];
       let policies = [];
       let uniqueConstraints = [];
+      let foreignKeyDefs = [];
       if (args.length >= 3) {
         const result = this._parseConstraints(args[2], tableName);
         indexes = result.indexes;
         policies = result.policies;
         uniqueConstraints = result.uniqueConstraints;
+        foreignKeyDefs = result.foreignKeyDefs || [];
+      }
+
+      // Apply foreignKey() helper definitions to matching columns.
+      // The column prop name from `table.col` is the logical name, so we
+      // need to find the column whose logicalName matches (or whose key matches).
+      for (const fk of foreignKeyDefs) {
+        // Find the column by logical name (the property name in the columns object)
+        const matchingCol = Object.values(columns).find(
+          (c) => c.logicalName === fk.columnProp || c.name === fk.columnProp,
+        );
+        if (matchingCol && !matchingCol.references) {
+          matchingCol.references = { table: fk.refTable, column: fk.refColumn };
+        }
       }
 
       // Build constraints metadata array (for compatibility)
@@ -357,12 +372,13 @@ export class ASTSchemaParser {
     const indexes = [];
     const policies = [];
     const uniqueConstraints = [];
+    const foreignKeyDefs = [];
 
     if (
       node.getKind() !== SyntaxKind.ArrowFunction &&
       node.getKind() !== SyntaxKind.FunctionExpression
     ) {
-      return { indexes, policies, uniqueConstraints };
+      return { indexes, policies, uniqueConstraints, foreignKeyDefs };
     }
 
     const body = node.getBody();
@@ -383,10 +399,13 @@ export class ASTSchemaParser {
       } else if (rootFn === 'pgPolicy') {
         const pol = this._parsePolicyDef(chain);
         if (pol) policies.push(pol);
+      } else if (rootFn === 'foreignKey') {
+        const fk = this._parseForeignKeyDef(chain);
+        if (fk) foreignKeyDefs.push(fk);
       }
     }
 
-    return { indexes, policies, uniqueConstraints };
+    return { indexes, policies, uniqueConstraints, foreignKeyDefs };
   }
 
   /**
@@ -620,6 +639,60 @@ export class ASTSchemaParser {
     const text = node.getText();
     const parts = text.split('.');
     return parts[parts.length - 1].replace(/[^a-zA-Z0-9_]/g, '');
+  }
+
+  /**
+   * foreignKey({ name: 'fk_name', columns: [table.col], foreignColumns: [otherTable.id] })
+   *
+   * Returns { column, refTable, refColumn } so that parseFile can set
+   * `column.references = { table, column }` on the matching column definition.
+   */
+  _parseForeignKeyDef(chain) {
+    const args = chain.root.args;
+    if (args.length < 1) return null;
+
+    const configObj = args[0];
+    if (configObj.getKind() !== SyntaxKind.ObjectLiteralExpression) return null;
+
+    let columns = [];
+    let foreignColumns = [];
+
+    for (const prop of configObj.getProperties()) {
+      if (prop.getKind() !== SyntaxKind.PropertyAssignment) continue;
+      const propName = prop.getName();
+      const value = prop.getInitializer();
+      if (!value) continue;
+
+      if (propName === 'columns' && value.getKind() === SyntaxKind.ArrayLiteralExpression) {
+        columns = value.getElements().map((el) => {
+          // table.col → extract both parts
+          if (el.getKind() === SyntaxKind.PropertyAccessExpression) {
+            return { var: el.getExpression().getText(), prop: el.getName() };
+          }
+          return null;
+        }).filter(Boolean);
+      } else if (propName === 'foreignColumns' && value.getKind() === SyntaxKind.ArrayLiteralExpression) {
+        foreignColumns = value.getElements().map((el) => {
+          if (el.getKind() === SyntaxKind.PropertyAccessExpression) {
+            return { var: el.getExpression().getText(), prop: el.getName() };
+          }
+          return null;
+        }).filter(Boolean);
+      }
+    }
+
+    // We only handle single-column FKs for now (matching the existing .references() behaviour)
+    if (columns.length >= 1 && foreignColumns.length >= 1) {
+      return {
+        // The logical column name used in the columns array (e.g. 'assessment_id')
+        columnProp: columns[0].prop,
+        // The referenced table variable name and column property
+        refTable: foreignColumns[0].var,
+        refColumn: foreignColumns[0].prop,
+      };
+    }
+
+    return null;
   }
 
   /** Parse `.references(() => table.column)` arrow function. */

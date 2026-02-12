@@ -355,6 +355,99 @@ const ginResult = parser.parseFile(ginSchema, 'events');
 assert(ginResult.events.indexes.length === 1, 'gin index found');
 assert(ginResult.events.indexes[0].method === 'gin', 'method = gin');
 
+// ─── Test: foreignKey() helper ───────────────────────────────────
+
+console.log('\n📋 Test: foreignKey() helper — basic');
+
+const fkHelperSchema = `
+import { pgTable, integer, text, foreignKey } from 'drizzle-orm/pg-core';
+
+export const authors = pgTable('authors', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+});
+
+export const books = pgTable('books', {
+  id: integer('id').primaryKey(),
+  title: text('title').notNull(),
+  authorId: integer('author_id'),
+}, (table) => [
+  foreignKey({ name: 'fk_books_author', columns: [table.authorId], foreignColumns: [authors.id] }),
+]);
+`;
+
+const fkHelperResult = parser.parseFile(fkHelperSchema, 'fk-helper');
+assert(fkHelperResult.books.columns.author_id.references?.table === 'authors', 'FK ref table = authors');
+assert(fkHelperResult.books.columns.author_id.references?.column === 'id', 'FK ref column = id');
+assert(fkHelperResult.books.constraints.some(c => c.type === 'FOREIGN KEY'), 'FK constraint present');
+
+// ─── Test: foreignKey() alongside inline .references() ──────────
+
+console.log('\n📋 Test: foreignKey() + inline .references() coexist');
+
+const mixedFkSchema = `
+import { pgTable, integer, text, foreignKey } from 'drizzle-orm/pg-core';
+
+export const categories = pgTable('categories', {
+  id: integer('id').primaryKey(),
+});
+
+export const tags = pgTable('tags', {
+  id: integer('id').primaryKey(),
+});
+
+export const articles = pgTable('articles', {
+  id: integer('id').primaryKey(),
+  categoryId: integer('category_id').references(() => categories.id),
+  tagId: integer('tag_id'),
+}, (table) => [
+  foreignKey({ columns: [table.tagId], foreignColumns: [tags.id] }),
+]);
+`;
+
+const mixedFkResult = parser.parseFile(mixedFkSchema, 'mixed-fk');
+assert(mixedFkResult.articles.columns.category_id.references?.table === 'categories', 'inline ref preserved');
+assert(mixedFkResult.articles.columns.tag_id.references?.table === 'tags', 'foreignKey() ref added');
+assert(mixedFkResult.articles.columns.tag_id.references?.column === 'id', 'foreignKey() ref column');
+
+// ─── Test: foreignKey() does not overwrite inline .references() ──
+
+console.log('\n📋 Test: foreignKey() does not overwrite inline .references()');
+
+const overwriteSchema = `
+import { pgTable, integer, foreignKey } from 'drizzle-orm/pg-core';
+
+export const a = pgTable('a', { id: integer('id').primaryKey() });
+export const b = pgTable('b', { id: integer('id').primaryKey() });
+
+export const c = pgTable('c', {
+  id: integer('id').primaryKey(),
+  ref: integer('ref_col').references(() => a.id),
+}, (table) => [
+  foreignKey({ columns: [table.ref], foreignColumns: [b.id] }),
+]);
+`;
+
+const owResult = parser.parseFile(overwriteSchema, 'overwrite');
+assert(owResult.c.columns.ref_col.references?.table === 'a', 'inline ref wins over foreignKey()');
+
+// ─── Test: foreignKey() with AnyPgColumn-style type annotation ──
+
+console.log('\n📋 Test: foreignKey() + AnyPgColumn inline ref');
+
+const anyPgSchema = `
+import { pgTable, integer, AnyPgColumn } from 'drizzle-orm/pg-core';
+
+export const nodes = pgTable('nodes', {
+  id: integer('id').primaryKey(),
+  parentId: integer('parent_id').references((): AnyPgColumn => nodes.id),
+});
+`;
+
+const anyPgResult = parser.parseFile(anyPgSchema, 'anypg');
+assert(anyPgResult.nodes.columns.parent_id.references?.table === 'nodes', 'AnyPgColumn self-ref table');
+assert(anyPgResult.nodes.columns.parent_id.references?.column === 'id', 'AnyPgColumn self-ref column');
+
 // ─── Summary ────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
