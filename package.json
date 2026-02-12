@@ -1,6 +1,6 @@
 {
   "name": "drizzle-migrations-liquibase",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Eliminates Drizzle migration conflicts in team environments — bridges Drizzle ORM with Liquibase migration engine.",
   "type": "module",
   "keywords": [
