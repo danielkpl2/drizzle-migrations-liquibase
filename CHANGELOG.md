@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-02-15
+
+### Added
+
+- **Drizzle Kit engine** — alternative diff engine that hooks into `drizzle-kit`'s own schema serializer and diff algorithms via the public `drizzle-kit/api` export. Use it with `--engine drizzle-kit` on the CLI or `engine: 'drizzle-kit'` in your config. Benefits:
+  - Uses drizzle-kit's battle-tested schema serializer (runtime Drizzle objects, not AST parsing)
+  - Handles column/table rename detection interactively
+  - Covers more schema features (sequences, check constraints, views, etc.)
+  - Future multi-database support (MySQL, SQLite) with minimal work
+  - Trade-off: requires `drizzle-kit` + `drizzle-orm` as peer dependencies and `jiti` for TypeScript schema loading
+
+- **drizzle-kit v1 beta auto-detection** — the engine automatically detects whether your project uses drizzle-kit v0.31+ (`drizzle-kit/api`) or v1.0.0-beta (`drizzle-kit/api-postgres`) and adapts the `pushSchema()` call signature accordingly. No configuration needed.
+
+- **`schemas` config option + `--schemas` CLI flag** — controls which database schemas are introspected by the drizzle-kit engine. Defaults to `['public']`, which prevents `DROP TABLE` / `DROP POLICY` statements for tables in other schemas (e.g. Supabase's `auth`, `storage`, `realtime`). Set `schemas: ['public', 'custom_schema']` in your config or pass `--schemas public,custom_schema` on the CLI if your Drizzle schema uses `pgSchema()`.
+
+- **`excludeTables` config option + `--exclude-tables` CLI flag** — exclude specific tables from drizzle-kit engine output. Liquibase's tracking tables (`databasechangelog`, `databasechangeloglock`) are always excluded automatically. Use this for additional tables: `excludeTables: ['audit_log', 'staging_data']` or `--exclude-tables audit_log,staging_data`.
+
+- **`--engine` / `-e` CLI flag** for `generate` command — switch between `custom` (default, AST-based) and `drizzle-kit` engines. Also supports `--engine=drizzle-kit` form and config file `engine` option.
+
+- **155 new tests** for the drizzle-kit engine covering rollback generation (20+ DDL patterns), statement pairing, file output format, changelog management, config validation, table exclusion filtering, schema config handling, and end-to-end flows. Total: **555 tests** across 8 suites.
+
+### Changed
+
+- `drizzle-kit` added as an optional peer dependency (`>=0.31.0`).
+- `jiti` and `drizzle-kit` added to dev dependencies for testing.
+- New export: `drizzle-migrations-liquibase/drizzle-kit-engine`.
+
 ## [1.0.1] - 2026-02-12
 
 ### Fixed
@@ -51,5 +78,6 @@ Initial public release.
 - `.env` / `.env.local` auto-loading for database credentials
 - 390 tests across 7 test suites
 
+[1.1.0]: https://github.com/danielkpl2/drizzle-migrations-liquibase/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/danielkpl2/drizzle-migrations-liquibase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/danielkpl2/drizzle-migrations-liquibase/releases/tag/v1.0.0

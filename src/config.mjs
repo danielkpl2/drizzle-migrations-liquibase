@@ -19,6 +19,14 @@ const DEFAULTS = {
   /** Glob/directory used by the generator to find the schema index.ts */
   schemaIndexFile: 'index.ts',
 
+  /**
+   * Diff engine: 'custom' | 'drizzle-kit'
+   *   custom     — built-in AST-based parser + diff engine (default, PostgreSQL only)
+   *   drizzle-kit — hooks into drizzle-kit's own serializer + diff algorithms
+   *                 (requires drizzle-kit + drizzle-orm as peer dependencies)
+   */
+  engine: 'custom',
+
   /** Directory where Liquibase migration SQL files are written */
   migrationsDir: './liquibase/migrations',
 

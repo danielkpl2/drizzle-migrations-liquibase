@@ -4,9 +4,11 @@
 
 **Eliminates Drizzle migration conflicts in team environments** by bridging [Drizzle ORM](https://orm.drizzle.team/) with [Liquibase](https://www.liquibase.com/) — keep using Drizzle for schemas and queries, delegate migration management to a battle-tested system.
 
+> **v1.1.0**: Ships with two diff engines — a [custom structural engine](#custom-engine-default) (default) and an opt-in [drizzle-kit engine](#drizzle-kit-engine) that hooks into drizzle-kit's own diff algorithms. See [Diff Engines](#diff-engines) for details.
+
 ## Why?
 
-Drizzle Kit's built-in migration system relies on a **journal file** and a **linked-list** structure where each migration references the previous one. This works fine for solo developers, but quickly becomes **chaotic in teams** ([discussion](https://github.com/drizzle-team/drizzle-orm/discussions/2832)):
+Drizzle Kit's built-in migration system historically relied on a **journal file** and a **linked-list** structure where each migration references the previous one. This works fine for solo developers, but quickly becomes **chaotic in teams** ([discussion](https://github.com/drizzle-team/drizzle-orm/discussions/2832)):
 
 - Multiple developers generating migrations in parallel creates conflicts
 - Journal entries must be regenerated when migrations are reordered or merged
@@ -20,6 +22,17 @@ Drizzle Kit's built-in migration system relies on a **journal file** and a **lin
 - ✅ **Rollback support** — every migration can define rollback statements
 - ✅ **Checksum verification** — Liquibase tracks MD5 checksums to detect if applied migrations were modified
 - ✅ **Proven at scale** — used by thousands of enterprises for 15+ years
+
+> **Note on Drizzle Kit progress**: The Drizzle team has been actively improving their migration system — a [v1.0.0 beta](https://github.com/drizzle-team/drizzle-orm/releases/tag/v1.0.0-beta.15) is in progress, and some of the original pain points above are being addressed. However, several fundamental gaps remain even in the latest releases:
+>
+> | Capability | Liquibase | Drizzle Kit (incl. v1 beta) |
+> |---|---|---|
+> | **Rollback by count / tag / date** | ✅ `rollbackCount`, `rollbackTag`, `rollbackToDate` | ❌ No rollback commands |
+> | **Conditional execution / preconditions** | ✅ `<preConditions>`, `<onFail>`, `<onError>` | ❌ None |
+> | **DB-first workflow** | ✅ DB-first, code-first, or hybrid | ⚠️ Code-first philosophy; `pull` exists but isn't central |
+> | **Checksum verification** | ✅ MD5 checksums detect tampered migrations | ❌ None |
+> | **Migration status / history** | ✅ `status`, `history` commands | ❌ No built-in commands |
+> | **Dry-run / preview** | ✅ `updateSQL` shows SQL without executing | ❌ None |
 
 This package lets you continue using **Drizzle ORM** (just the ORM — schemas, queries, relations) while delegating **all migration work** to Liquibase.
 
@@ -44,6 +57,135 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 4. The **update** command applies pending migrations via Liquibase
 5. Liquibase tracks what's been applied in its own `databasechangelog` table
 
+## Diff Engines
+
+The package ships with **two diff engines** that both produce Liquibase-formatted output. Choose whichever fits your project:
+
+### Custom Engine (default)
+
+A custom-built diff algorithm that covers the vast majority of real-world schema changes — tables, columns, types, foreign keys, indexes, unique constraints, and RLS policies — without being strict about naming conventions. Used daily by a team of 15 engineers for 6+ months and counting.
+
+```bash
+npx drizzle-liquibase generate add_users_table
+# or explicitly:
+npx drizzle-liquibase generate add_users_table --engine custom
+```
+
+**How it works**: Parses your `.ts` schema files as text using [ts-morph](https://github.com/dsherret/ts-morph) AST analysis — it reads the structure of your `pgTable()` calls without importing or executing them. Then queries the live database's `information_schema` and `pg_catalog` to build a snapshot of the current DB state. Finally, diffs the two and generates SQL.
+
+The custom engine performs **structural comparison** — it checks whether a column has a unique constraint, whether a foreign key points to the right table, whether an index covers the right columns. It does **not** check constraint names. This means a unique constraint called `users_email_key` (Postgres default) or `users_email_unique` (Drizzle convention) are treated as identical — what matters is that column `email` is unique, not what the constraint is named. This makes the engine practical for real projects where constraints come from a mix of hand-written SQL, older migrations, and Drizzle schema declarations.
+
+One limitation: the custom engine treats **column renames as a drop + create**. When you rename `first_name` to `given_name` in your schema, the engine sees a column called `first_name` in the DB that's no longer in the schema, and a new column `given_name` in the schema that's not in the DB — so it generates `DROP COLUMN` + `ADD COLUMN`. Detecting renames reliably is a hard problem: the engine would need to infer intent from column types, positions, and heuristics, and getting it wrong (dropping a column that had data) is worse than being conservative. In practice, column renames are infrequent enough that editing the generated migration to use `ALTER TABLE ... RENAME COLUMN` instead is straightforward.
+
+The custom engine also supports **bidirectional diffing** — both schema-first (`generate`) and database-first (`generate --reverse`). Reverse mode generates migrations for objects that exist in the database but aren't defined in your Drizzle schema, useful for documenting drift or capturing manually-applied changes.
+
+### Drizzle Kit Engine
+
+Hooks directly into [drizzle-kit](https://orm.drizzle.team/kit-docs/overview)'s own diff algorithms via its public API. Supports both **v0.31+** (`drizzle-kit/api`) and **v1.0.0-beta** (`drizzle-kit/api-postgres`) — auto-detects which version you have installed. More thorough than the custom engine — it covers sequences, check constraints, views, and rename detection — but also more opinionated.
+
+```bash
+npx drizzle-liquibase generate add_users_table --engine drizzle-kit
+```
+
+**How it works**: Dynamically imports your `.ts` schema files at runtime using [jiti](https://github.com/unjs/jiti) (a lightweight TypeScript loader), giving it the actual live Drizzle ORM objects (`PgTable` instances, not just their text). Then calls `pushSchema(imports, db)` from drizzle-kit's API — despite the name, this doesn't push anything to the database. It's drizzle-kit's public function that serialises the runtime objects into a JSON snapshot, introspects the live database into another snapshot, diffs them, and returns the raw SQL statements. We then wrap those in Liquibase format and auto-generate rollback statements.
+
+The engine auto-detects your drizzle-kit version: v1.0.0-beta moved the API from `drizzle-kit/api` to `drizzle-kit/api-postgres` and changed the return shape (`statementsToExecute` → `sqlStatements`, `warnings` → `hints`). Both are handled transparently — you don't need to configure anything.
+
+Unlike the custom engine, drizzle-kit performs **identity-based comparison** — it checks that constraint names match exactly. If a unique constraint exists on the right column but with a different name (e.g. `_key` vs `_unique`), drizzle-kit will drop and recreate it. This is more correct in a strict sense, but can produce unnecessary churn in projects where constraints were created via hand-written SQL using Postgres default naming.
+
+The drizzle-kit engine handles **column renames well** — when it detects a column that disappeared and a new one with the same type appeared, it prompts you interactively to confirm whether it's a rename. If you confirm, it generates `ALTER TABLE ... RENAME COLUMN` instead of a destructive drop + create.
+
+The drizzle-kit engine is **schema-first only** — it generates migrations to make the database match your schema. It does not support reverse mode (`--reverse`) for discovering objects in the database that aren't in your schema. If you need database-first diffing, use the custom engine.
+
+```
+Schema .ts files
+      │
+      ▼  jiti imports at runtime
+Runtime Drizzle objects (pgTable instances)
+      │
+      ▼  pushSchema() from drizzle-kit/api or drizzle-kit/api-postgres
+drizzle-kit internal pipeline:
+  Serialise → JSON snapshot → Introspect DB → Diff → SQL[]
+      │
+      ▼  raw SQL strings returned
+Liquibase wrapper:
+  Filter out excluded tables → Pattern-match rollbacks → Write .sql file → Update changelog
+```
+
+> **Liquibase tables**: The engine automatically excludes Liquibase's tracking tables (`databasechangelog`, `databasechangeloglock`) from generated migrations. Without this, drizzle-kit would see them in the database, not find them in your Drizzle schema, and generate `DROP TABLE` / `DROP POLICY` statements for them. You can exclude additional tables via the `excludeTables` config option.
+
+> **Schema filtering**: By default, only the `public` schema is introspected. This prevents `DROP TABLE` statements for tables in other schemas (e.g. Supabase's `auth`, `storage`, `realtime`). If your Drizzle schema uses `pgSchema()` for additional schemas, add them to the `schemas` config option or pass `--schemas public,custom_schema` on the CLI.
+
+> **Drizzle-kit version**: The engine uses **your project's installed `drizzle-kit`** — it's an optional peer dependency, not bundled. This means diff quality, bug fixes, and feature support depend entirely on the version you have installed. Both **v0.31+** (stable, uses `drizzle-kit/api`) and **v1.0.0-beta** (uses `drizzle-kit/api-postgres`) are supported — the engine auto-detects which API is available. You control which version your project uses.
+
+**Set it as the default** in your config:
+
+```js
+// drizzle-liquibase.config.mjs
+export default {
+  schemaDir: './src/schema',
+  engine: 'drizzle-kit',  // use drizzle-kit for all generate commands
+}
+```
+
+### Engine Comparison
+
+| | Custom (default) | Drizzle Kit |
+|---|---|---|
+| **Schema reading** | AST parsing (reads `.ts` as text) | Runtime import (executes `.ts` via jiti) |
+| **DB introspection** | Direct SQL queries to `information_schema` | drizzle-kit's built-in introspector |
+| **Diff algorithm** | Custom structural comparison | drizzle-kit's own identity-based diff (~25K lines) |
+| **Constraint matching** | By column set (ignores names) | By constraint name (name mismatch = drift) |
+| **Extra dependencies** | None (all bundled) | `drizzle-kit` (uses your installed version) |
+| **Reverse mode** | ✅ `--reverse` flag | ❌ Not supported |
+| **Rename detection** | ❌ Treats as drop + create | ✅ Interactive prompt for renames |
+| **Sequences** | ❌ | ✅ |
+| **Check constraints** | ❌ | ✅ |
+| **Views** | ❌ | ✅ |
+| **Output format** | Liquibase Formatted SQL | Liquibase Formatted SQL (identical) |
+| **Rollback generation** | ✅ Automatic | ✅ Automatic (same pattern matching) |
+
+#### Structural vs Identity Diffing
+
+The two engines differ fundamentally in **how they match database objects**:
+
+**Custom engine** performs a **structural diff** — it compares objects by their functional meaning. Unique constraints are matched **by column set**, foreign keys by **which columns reference which target**. Constraint names are ignored entirely. If a unique constraint on column `code` exists in both schema and DB, it's a match — regardless of whether it's called `delivery_methods_code_unique` or `delivery_methods_unique_code`.
+
+**Drizzle-kit engine** performs an **identity diff** — it compares objects by their **full serialised representation including names**. A FK named `orders_bench_id_fkey` and one named `orders_bench_id_benches_id_fk` targeting the exact same columns are treated as two different objects, producing a DROP + CREATE.
+
+**Example**: Given this schema declaration:
+
+```ts
+code: varchar('code', { length: 32 }).notNull().unique(),
+```
+
+Drizzle ORM generates constraint name: `delivery_methods_code_unique` (its convention: `{table}_{column}_unique`).
+
+But if the DB constraint was created via a hand-written SQL migration:
+
+```sql
+ALTER TABLE "delivery_methods" ADD CONSTRAINT "delivery_methods_unique_code" UNIQUE("code");
+```
+
+| Engine | Sees drift? | Why |
+|--------|------------|-----|
+| Custom | **No** | Column `code` is unique in both schema and DB — match |
+| Drizzle-kit | **Yes** | Expects `_code_unique`, finds `_unique_code` → drop + recreate |
+
+This matters most in **hybrid projects** where some constraints were created via hand-written SQL migrations (using Postgres naming conventions) and some via Drizzle schema declarations (using Drizzle naming conventions):
+
+| Object | Drizzle convention | Postgres default |
+|--------|-------------------|-----------------|
+| Unique | `{table}_{column}_unique` | `{table}_{column}_key` |
+| Foreign key | `{table}_{col}_{ref_table}_{ref_col}_fk` | `{table}_{column}_fkey` |
+
+If your DB was built entirely from `drizzle-kit push` or `drizzle-kit generate` from day one, names will always match. Drift appears when constraints were created via raw SQL migrations, or by older Drizzle versions with different naming conventions.
+
+**When to use which?**
+
+- **Custom engine**: Best for hybrid projects with a mix of hand-written SQL migrations and Drizzle schemas. Tolerant of naming differences. Zero extra dependencies. Supports `--reverse` mode.
+- **Drizzle Kit engine**: Best for greenfield projects where Drizzle schema is the sole source of truth. Most thorough diff (catches naming drift, sequences, check constraints, views, renames). Uses your installed `drizzle-kit`.
+
 ## Features
 
 - 🔄 **Auto-diff** — detects tables, columns, indexes, foreign keys, unique constraints, and RLS policies
@@ -53,6 +195,7 @@ This package lets you continue using **Drizzle ORM** (just the ORM — schemas, 
 - 🔧 **Three Liquibase modes** — node (npm package), CLI (system binary), or Docker
 - 🔒 **Security** — SQL identifier escaping, injection prevention, input validation
 - 🌳 **AST-based parsing** — uses ts-morph to accurately parse Drizzle schema files
+- ⚡ **Drizzle Kit engine** — opt-in engine that hooks into drizzle-kit's own diff algorithms (supports both v0.31+ and v1.0.0-beta)
 - 🐘 **PostgreSQL** — tested and optimised for PostgreSQL (the only supported database currently)
 
 ## Quick Start
@@ -69,7 +212,7 @@ yarn add -D drizzle-migrations-liquibase
 
 > **Dev dependency**: This package is only needed during development and CI/CD — it does not need to be installed in production.
 
-> **Peer dependency**: You also need `drizzle-orm` installed. The `liquibase` npm package is optional — only needed if you use `liquibaseMode: 'node'` (the default).
+> **Peer dependency**: You also need `drizzle-orm` installed (you already have it if you're using Drizzle). The `liquibase` npm package is optional — only needed if you use `liquibaseMode: 'node'` (the default).
 
 ```bash
 npm install -D liquibase
@@ -161,6 +304,8 @@ export const users = pgTable('users', {
 | `npx drizzle-liquibase init` | Scaffold config and directory structure |
 | `npx drizzle-liquibase generate <name>` | Generate migration from schema diff |
 | `npx drizzle-liquibase generate <name> --reverse` | Generate migration for DB-only objects |
+| `npx drizzle-liquibase generate <name> --engine drizzle-kit` | Generate using drizzle-kit's diff engine |
+| `npx drizzle-liquibase generate <name> --schemas public,custom` | Limit introspection to specific schemas |
 | `npx drizzle-liquibase update` | Apply all pending migrations |
 | `npx drizzle-liquibase status` | Show pending/applied migration status |
 | `npx drizzle-liquibase validate` | Validate the master changelog |
@@ -236,6 +381,10 @@ export default {
   // Name of the index file in schemaDir (default: 'index.ts')
   schemaIndexFile: 'index.ts',
 
+  // Diff engine: 'custom' (default) or 'drizzle-kit'
+  // 'drizzle-kit' uses your project's installed drizzle-kit (optional peer dependency)
+  engine: 'custom',
+
   // Directory for generated migration files
   migrationsDir: './liquibase/migrations',
 
@@ -255,6 +404,15 @@ export default {
 
   // Changeset author (null = auto-detect from git / $USER)
   author: null,
+
+  // Tables to exclude from drizzle-kit engine output (in addition to
+  // Liquibase's own tracking tables which are always excluded)
+  excludeTables: [],
+
+  // Database schemas to include in drizzle-kit introspection.
+  // Default: ['public'] — only the public schema is diffed.
+  // Add more if your Drizzle schema uses pgSchema().
+  // schemas: ['public'],
 
   // Schema diff options
   diff: {
@@ -696,12 +854,21 @@ The only file that might have a merge conflict is `master-changelog.xml`. Since 
 ```js
 import { SchemaDiffGenerator, runLiquibase, loadConfig } from 'drizzle-migrations-liquibase';
 
-// Generate a migration programmatically
+// Generate a migration programmatically (custom engine — default)
 const generator = new SchemaDiffGenerator({
   name: 'add_users_table',
   projectRoot: '/path/to/project',
 });
 await generator.run();
+
+// Generate using the drizzle-kit engine
+import { DrizzleKitEngine } from 'drizzle-migrations-liquibase/drizzle-kit-engine';
+
+const dkGenerator = new DrizzleKitEngine({
+  name: 'add_users_table',
+  projectRoot: '/path/to/project',
+});
+await dkGenerator.run();
 
 // Run Liquibase commands programmatically
 await runLiquibase('update', [], { projectRoot: '/path/to/project' });
@@ -753,7 +920,8 @@ This covers the types exposed by Drizzle ORM's `pg-core` module and addresses th
 ## Limitations
 
 - **PostgreSQL only** — the schema introspection and SQL generation are PostgreSQL-specific
-- **AST-based schema parsing** — uses [ts-morph](https://github.com/dsherret/ts-morph) to parse your TypeScript schema files (not regex). Handles `.enableRLS` chains, all constraint callback forms (array, object, block-body), cross-file references, and self-referencing foreign keys. However, fully dynamic schemas (e.g. programmatically-generated `pgTable()` calls) are not supported.
+- **AST-based schema parsing (custom engine)** — uses [ts-morph](https://github.com/dsherret/ts-morph) to parse your TypeScript schema files (not regex). Handles `.enableRLS` chains, all constraint callback forms (array, object, block-body), cross-file references, and self-referencing foreign keys. However, fully dynamic schemas (e.g. programmatically-generated `pgTable()` calls) are not supported.
+- **Rename detection (custom engine)** — the custom engine cannot detect column or table renames. Renaming `first_name` to `given_name` generates `DROP COLUMN` + `ADD COLUMN` instead of `ALTER TABLE RENAME COLUMN`, which **loses data**. Similarly, constraint naming mismatches (e.g. `_fk` vs `_fkey` suffixes) may produce unnecessary drop/recreate pairs. Review generated migrations carefully and edit by hand when needed. The **drizzle-kit engine** handles renames interactively — it prompts you to choose between rename and create/delete, making it the better choice for projects with frequent schema evolution.
 - **Enum types** — currently treated as `varchar` for comparison purposes (values are not diffed)
 - **Custom SQL** — triggers, functions, and other database objects not defined via `pgTable()` are not detected by the diff engine (use `--reverse` mode or manual migrations)
 

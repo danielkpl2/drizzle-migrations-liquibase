@@ -76,6 +76,32 @@ export default {
   author: null,
 
   // =========================================================================
+  // Table exclusions (drizzle-kit engine)
+  // =========================================================================
+
+  // Tables to exclude from drizzle-kit engine output. Liquibase's own tracking
+  // tables (databasechangelog, databasechangeloglock) are always excluded
+  // automatically — add any extra tables your project needs to skip here.
+  //
+  // excludeTables: ['audit_log', 'staging_data'],
+  excludeTables: [],
+
+  // =========================================================================
+  // Schema filtering (drizzle-kit engine)
+  // =========================================================================
+
+  // Database schemas to include when the drizzle-kit engine introspects the
+  // database. Default: ['public'] — only generates migrations for the public
+  // schema. This prevents DROP statements for tables in other schemas (e.g.
+  // Supabase's auth, storage, realtime schemas).
+  //
+  // If your Drizzle schema uses pgSchema() to manage additional schemas,
+  // add them here:
+  //   schemas: ['public', 'custom_schema'],
+  //
+  // schemas: ['public'],
+
+  // =========================================================================
   // Schema diff options
   // =========================================================================
   diff: {

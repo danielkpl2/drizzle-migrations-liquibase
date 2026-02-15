@@ -35,6 +35,7 @@
   "exports": {
     ".": "./src/index.mjs",
     "./generate": "./src/generate.mjs",
+    "./drizzle-kit-engine": "./src/drizzle-kit-engine.mjs",
     "./ast-parser": "./src/ast-parser.mjs",
     "./runner": "./src/runner.mjs",
     "./config": "./src/config.mjs"
@@ -60,19 +61,25 @@
     "test": "node test/run-all.mjs"
   },
   "dependencies": {
+    "jiti": "^2.4.0",
     "pg": "^8.16.0",
     "ts-morph": "^25.0.0"
   },
   "peerDependencies": {
+    "drizzle-kit": ">=0.31.0 || >=1.0.0-beta.1",
     "drizzle-orm": ">=0.30.0",
     "liquibase": "^4.28.0"
   },
   "peerDependenciesMeta": {
+    "drizzle-kit": {
+      "optional": true
+    },
     "liquibase": {
       "optional": true
     }
   },
   "devDependencies": {
+    "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.44.0",
     "liquibase": "^4.28.1"
   },

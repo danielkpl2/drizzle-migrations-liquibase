@@ -8,10 +8,13 @@
     "dev": "echo 'This is an example project — see root test/ for tests'"
   },
   "dependencies": {
-    "drizzle-migrations-liquibase": "^1.0.0",
+    "drizzle-migrations-liquibase": "^1.1.0",
     "drizzle-orm": "^0.44.0",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.0"
   }
 }

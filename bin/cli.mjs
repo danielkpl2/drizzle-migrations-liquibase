@@ -161,26 +161,62 @@ async function runInit() {
 // ---------------------------------------------------------------------------
 
 async function runGenerate(args) {
-  const { SchemaDiffGenerator } = await import('../src/generate.mjs');
-
   let customName = null;
   let reverse = false;
+  let engine = null;
+  let excludeTables = [];
+  let schemas = [];
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === '--reverse' || arg === '-r') {
       reverse = true;
+    } else if (arg === '--engine' || arg === '-e') {
+      engine = args[++i]; // consume next arg as engine value
+    } else if (arg.startsWith('--engine=')) {
+      engine = arg.split('=')[1];
+    } else if (arg === '--exclude-tables') {
+      // Comma-separated list: --exclude-tables audit_log,temp_data
+      const val = args[++i];
+      if (val) excludeTables = val.split(',').map(t => t.trim()).filter(Boolean);
+    } else if (arg.startsWith('--exclude-tables=')) {
+      excludeTables = arg.split('=')[1].split(',').map(t => t.trim()).filter(Boolean);
+    } else if (arg === '--schemas') {
+      // Comma-separated list: --schemas public,custom_schema
+      const val = args[++i];
+      if (val) schemas = val.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (arg.startsWith('--schemas=')) {
+      schemas = arg.split('=')[1].split(',').map(s => s.trim()).filter(Boolean);
     } else if (!arg.startsWith('-')) {
       customName = customName || arg;
     }
   }
 
-  const generator = new SchemaDiffGenerator({
-    name: customName,
-    reverse,
-    projectRoot: process.cwd(),
-  });
+  // Resolve engine: CLI flag > config file > default ('custom')
+  if (!engine) {
+    const { loadConfig } = await import('../src/config.mjs');
+    const config = await loadConfig(process.cwd());
+    engine = config.engine || 'custom';
+  }
 
-  await generator.run();
+  if (engine === 'drizzle-kit') {
+    const { DrizzleKitEngine } = await import('../src/drizzle-kit-engine.mjs');
+    const generator = new DrizzleKitEngine({
+      name: customName,
+      projectRoot: process.cwd(),
+      excludeTables,
+      schemas,
+    });
+    await generator.run();
+  } else {
+    const { SchemaDiffGenerator } = await import('../src/generate.mjs');
+    const generator = new SchemaDiffGenerator({
+      name: customName,
+      reverse,
+      projectRoot: process.cwd(),
+    });
+    await generator.run();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +249,9 @@ Commands:
   init                         Scaffold config file and directory structure
   generate [name]              Generate a migration from Drizzle schema ↔ DB diff
     --reverse, -r              Generate migration for objects in DB but not in schema
+    --engine, -e <engine>      Diff engine: 'custom' (default) or 'drizzle-kit'
+    --exclude-tables <list>    Comma-separated tables to exclude (drizzle-kit engine)
+    --schemas <list>           Comma-separated schemas to include (default: public)
 
   update                       Apply all pending migrations
   status                       Show pending / applied migration status
@@ -230,6 +269,9 @@ Commands:
 Examples:
   npx drizzle-liquibase init
   npx drizzle-liquibase generate add_users_table
+  npx drizzle-liquibase generate add_users_table --engine drizzle-kit
+  npx drizzle-liquibase generate --engine drizzle-kit --exclude-tables audit_log,staging
+  npx drizzle-liquibase generate --engine drizzle-kit --schemas public,custom_schema
   npx drizzle-liquibase generate --reverse
   npx drizzle-liquibase update
   npx drizzle-liquibase rollback 1
@@ -267,6 +309,15 @@ export default {
 
   // Changeset author (null = auto-detect from git)
   author: null,
+
+  // Tables to exclude from drizzle-kit engine output (in addition to
+  // Liquibase's own tracking tables which are always excluded)
+  excludeTables: [],
+
+  // Database schemas to include in drizzle-kit introspection.
+  // Default: ['public'] — only generates migrations for the public schema.
+  // Set to include additional schemas if your Drizzle schema uses pgSchema().
+  // schemas: ['public'],
 
   // Schema diff options
   diff: {
