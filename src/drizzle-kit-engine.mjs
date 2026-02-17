@@ -26,8 +26,7 @@ import { join, dirname, resolve } from 'path';
 import { execSync } from 'child_process';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { Client } from 'pg';
-import { loadConfig, formatTimestamp } from './config.mjs';
+import { loadConfig, formatTimestamp, detectDialectFromUrl } from './config.mjs';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +70,7 @@ export class DrizzleKitEngine {
    * @param {string}    [opts.projectRoot]   — project root (for loadConfig fallback)
    * @param {string[]}  [opts.excludeTables] — extra tables to exclude (merged with config)
    * @param {string[]}  [opts.schemas]       — schemas to include (merged with config)
+   * @param {string}    [opts.dialect]       — database dialect override (postgresql|mysql|sqlite|singlestore)
    */
   constructor(opts = {}) {
     this.customName = opts.name ?? null;
@@ -78,11 +78,13 @@ export class DrizzleKitEngine {
     this._projectRoot = opts.projectRoot ?? null;
     this._cliExcludeTables = opts.excludeTables ?? [];
     this._cliSchemas = opts.schemas ?? [];
+    this._cliDialect = opts.dialect ?? null;
 
     this.config = null;
     this.schemaDir = null;
     this.migrationsDir = null;
     this.databaseUrl = null;
+    this.dialect = null;
   }
 
   // ------------------------------------------------------------------
@@ -101,6 +103,15 @@ export class DrizzleKitEngine {
     this.schemaDir = this.config.schemaDir;
     this.migrationsDir = this.config.migrationsDir;
     this.databaseUrl = this.config.databaseUrl;
+
+    // Resolve dialect: CLI flag > config > auto-detect from URL
+    const VALID_DIALECTS = ['postgresql', 'mysql', 'sqlite', 'singlestore'];
+    this.dialect = this._cliDialect ?? this.config.dialect ?? detectDialectFromUrl(this.databaseUrl) ?? 'postgresql';
+    if (!VALID_DIALECTS.includes(this.dialect)) {
+      throw new Error(
+        `Invalid dialect "${this.dialect}". Must be one of: ${VALID_DIALECTS.join(', ')}`
+      );
+    }
 
     // Merge CLI --exclude-tables with config excludeTables
     if (this._cliExcludeTables.length) {
@@ -204,13 +215,15 @@ export class DrizzleKitEngine {
       const t = table.toUpperCase();
       // Match quoted or unquoted table references in common DDL positions
       // e.g. DROP TABLE "databasechangelog", ALTER TABLE databasechangelog,
-      //      ON "databasechangelog", TABLE "databasechangelog"
+      //      ON "databasechangelog", TABLE `databasechangelog`
       const patterns = [
-        `"${t}"`,          // quoted identifier
+        `"${t}"`,          // double-quoted identifier (PostgreSQL)
+        `\`${t}\``,        // backtick-quoted identifier (MySQL)
         ` ${t} `,          // unquoted with spaces
         ` ${t};`,          // unquoted at end of statement
         ` ${t}\n`,         // unquoted at end of line
         `.${t}"`,          // schema-qualified "public"."table"
+        `.${t}\``,         // schema-qualified `public`.`table`
       ];
       for (const pattern of patterns) {
         if (upper.includes(pattern)) return true;
@@ -242,6 +255,146 @@ export class DrizzleKitEngine {
   }
 
   // ------------------------------------------------------------------
+  // Dialect-aware drizzle-kit API import
+  // ------------------------------------------------------------------
+
+  /**
+   * Import the correct drizzle-kit API functions for the configured dialect.
+   *
+   * PostgreSQL:
+   *   v1 beta: pushSchema from 'drizzle-kit/api-postgres'
+   *   v0.31:   pushSchema from 'drizzle-kit/api'
+   *
+   * MySQL / SingleStore / SQLite:
+   *   v0.31: pushXxxSchema from 'drizzle-kit/api'
+   *   Note: drizzle-kit v0.31 has a bug where pushMySQLSchema's statementsToExecute
+   *   is empty for DDL ops. Our postinstall script patches this (see scripts/patch-drizzle-kit.mjs).
+   *
+   * @returns {{ pushFn: Function, drizzleKitVersion: string }}
+   */
+  async importDrizzleKitApi() {
+    const dialect = this.dialect;
+
+    if (dialect === 'postgresql') {
+      // Try v1 beta first, fall back to v0.31
+      try {
+        const api = await importFromProject('drizzle-kit/api-postgres', this._projectRoot);
+        console.log('   Using drizzle-kit v1 API (drizzle-kit/api-postgres)');
+        return { pushFn: api.pushSchema, drizzleKitVersion: 'v1' };
+      } catch {
+        try {
+          const api = await importFromProject('drizzle-kit/api', this._projectRoot);
+          console.log('   Using drizzle-kit v0.31 API (drizzle-kit/api)');
+          return { pushFn: api.pushSchema, drizzleKitVersion: 'v0' };
+        } catch (e) {
+          throw new Error(
+            'drizzle-kit is required for the drizzle-kit engine.\n' +
+            'Install it: npm install -D drizzle-kit\n' +
+            `Error: ${e.message}`
+          );
+        }
+      }
+    }
+
+    // MySQL, SQLite, SingleStore — v0.31 only
+    const pushFnName = {
+      mysql: 'pushMySQLSchema',
+      sqlite: 'pushSQLiteSchema',
+      singlestore: 'pushSingleStoreSchema',
+    }[dialect];
+
+    if (!pushFnName) {
+      throw new Error(`Unsupported dialect: ${dialect}`);
+    }
+
+    try {
+      const api = await importFromProject('drizzle-kit/api', this._projectRoot);
+      if (!api[pushFnName]) {
+        throw new Error(`drizzle-kit/api does not export ${pushFnName}. You may need drizzle-kit v0.31+.`);
+      }
+      console.log(`   Using drizzle-kit v0.31 API (${pushFnName})`);
+      return {
+        pushFn: api[pushFnName],
+        drizzleKitVersion: 'v0',
+      };
+    } catch (e) {
+      if (e.message.includes('does not export')) throw e;
+      throw new Error(
+        `drizzle-kit v0.31+ is required for ${dialect} dialect.\n` +
+        'v1 beta does not yet support MySQL/SQLite/SingleStore push.\n' +
+        'Install it: npm install -D drizzle-kit@0.31\n' +
+        `Error: ${e.message}`
+      );
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Dialect-aware database connection
+  // ------------------------------------------------------------------
+
+  /**
+   * Create a drizzle ORM database instance for the configured dialect.
+   *
+   * Returns { db, cleanup, databaseName }
+   *   db          — drizzle instance for pushSchema
+   *   cleanup()   — async function to close the connection
+   *   databaseName — extracted database name (needed for MySQL/SingleStore push)
+   */
+  async createDatabaseConnection() {
+    const dialect = this.dialect;
+    const url = this.databaseUrl;
+
+    if (dialect === 'postgresql') {
+      const { Client } = await importFromProject('pg', this._projectRoot);
+      const client = new Client({ connectionString: url });
+      await client.connect();
+
+      const dorm = await importFromProject('drizzle-orm/node-postgres', this._projectRoot);
+      const db = dorm.drizzle({ client });
+
+      return {
+        db,
+        cleanup: () => client.end(),
+        databaseName: null,
+      };
+    }
+
+    if (dialect === 'mysql' || dialect === 'singlestore') {
+      const mysql2 = await importFromProject('mysql2/promise', this._projectRoot);
+
+      // Parse database name from URL
+      const dbNameMatch = url.match(/\/([^/?]+)(?:\?|$)/);
+      const databaseName = dbNameMatch?.[1];
+      if (!databaseName) {
+        throw new Error(
+          'Could not extract database name from DATABASE_URL.\n' +
+          'MySQL URL format: mysql://user:pass@host:port/dbname'
+        );
+      }
+
+      const pool = mysql2.createPool(url);
+
+      const dorm = await importFromProject('drizzle-orm/mysql2', this._projectRoot);
+      const db = dorm.drizzle({ client: pool });
+
+      return {
+        db,
+        cleanup: () => pool.end(),
+        databaseName,
+      };
+    }
+
+    if (dialect === 'sqlite') {
+      throw new Error(
+        'SQLite support is not yet implemented.\n' +
+        'SQLite requires a file path or :memory: as the database URL.'
+      );
+    }
+
+    throw new Error(`Unsupported dialect: ${dialect}`);
+  }
+
+  // ------------------------------------------------------------------
   // Main entry point
   // ------------------------------------------------------------------
 
@@ -254,79 +407,51 @@ export class DrizzleKitEngine {
       // 1. Load schema exports
       const imports = await this.loadSchemaExports();
 
-      // 2. Import drizzle-kit API
-      //    v1 beta uses 'drizzle-kit/api-postgres', v0.31 uses 'drizzle-kit/api'
-      let pushSchema;
-      let drizzleKitVersion = 'unknown';
-      try {
-        // Try v1 beta first (drizzle-kit/api-postgres)
-        const api = await importFromProject('drizzle-kit/api-postgres', this._projectRoot);
-        pushSchema = api.pushSchema;
-        drizzleKitVersion = 'v1';
-        console.log('   Using drizzle-kit v1 API (drizzle-kit/api-postgres)');
-      } catch {
-        try {
-          // Fall back to v0.31 (drizzle-kit/api)
-          const api = await importFromProject('drizzle-kit/api', this._projectRoot);
-          pushSchema = api.pushSchema;
-          drizzleKitVersion = 'v0';
-          console.log('   Using drizzle-kit v0.31 API (drizzle-kit/api)');
-        } catch (e) {
-          throw new Error(
-            'drizzle-kit is required for the drizzle-kit engine.\n' +
-            'Install it: npm install -D drizzle-kit\n' +
-            `Error: ${e.message}`
-          );
-        }
-      }
+      // 2. Import drizzle-kit API (dialect-aware)
+      const { pushFn, drizzleKitVersion } = await this.importDrizzleKitApi();
 
-      // 3. Create drizzle-orm database instance
-      let drizzle;
-      try {
-        const dorm = await importFromProject('drizzle-orm/node-postgres', this._projectRoot);
-        drizzle = dorm.drizzle;
-      } catch (e) {
-        throw new Error(
-          'drizzle-orm with node-postgres driver is required for the drizzle-kit engine.\n' +
-          'Install it: npm install -D drizzle-orm\n' +
-          `Error: ${e.message}`
-        );
-      }
-
-      const client = new Client({ connectionString: this.databaseUrl });
+      // 3. Create database connection and drizzle instance
+      const { db, cleanup, databaseName } = await this.createDatabaseConnection();
 
       try {
-        await client.connect();
-        const db = drizzle({ client });
-
         console.log('🔍 Comparing schema against database...');
+        console.log(`   Dialect: ${this.dialect}`);
 
-        // Pass schema filters to drizzle-kit to limit introspection.
-        // Default: ['public'] — prevents dropping tables from other schemas
-        // (auth, storage, realtime, etc. in Supabase projects).
-        const schemas = this.config.schemas ?? ['public'];
-        if (schemas.length) {
-          console.log(`   Schema filter: ${schemas.join(', ')}`);
-        }
-
+        // Call pushSchema with dialect-appropriate arguments
         let result;
-        if (drizzleKitVersion === 'v1') {
-          // v1 beta: pushSchema(imports, db, casing?, entitiesConfig?, migrationsConfig?)
-          result = await pushSchema(imports, db, undefined, {
-            schemas,
-            tables: [],
-            entities: undefined,
-            extensions: [],
-          });
+
+        if (this.dialect === 'postgresql') {
+          // Pass schema filters to drizzle-kit to limit introspection.
+          // Default: ['public'] — prevents dropping tables from other schemas.
+          const schemas = this.config.schemas ?? ['public'];
+          if (schemas.length) {
+            console.log(`   Schema filter: ${schemas.join(', ')}`);
+          }
+
+          if (drizzleKitVersion === 'v1') {
+            // v1 beta: pushSchema(imports, db, casing?, entitiesConfig?, migrationsConfig?)
+            result = await pushFn(imports, db, undefined, {
+              schemas,
+              tables: [],
+              entities: undefined,
+              extensions: [],
+            });
+          } else {
+            // v0.31: pushSchema(imports, db, schemaFilters?, tablesFilter?, extensionsFilters?)
+            result = await pushFn(imports, db, schemas);
+          }
+        } else if (this.dialect === 'sqlite') {
+          // SQLite: pushSQLiteSchema(imports, db)
+          result = await pushFn(imports, db);
         } else {
-          // v0.31: pushSchema(imports, db, schemaFilters?, tablesFilter?, extensionsFilters?)
-          result = await pushSchema(imports, db, schemas);
+          // MySQL / SingleStore: pushXxxSchema(imports, db, databaseName)
+          result = await pushFn(imports, db, databaseName);
         }
 
         // Normalise result — v0.31 and v1 beta return different shapes:
         //   v0.31:  { statementsToExecute: string[], hasDataLoss: boolean, warnings: string[] }
         //   v1:     { sqlStatements: string[], hints: { hint: string, statement?: string }[] }
-        const rawStatements = result.sqlStatements ?? result.statementsToExecute ?? [];
+        const rawStatements = [...new Set(result.sqlStatements ?? result.statementsToExecute ?? [])];
 
         // Filter out statements that reference excluded tables (Liquibase tracking tables etc.)
         const { filtered: sqlStatements, removedCount } = this.filterExcludedStatements(rawStatements);
@@ -370,7 +495,7 @@ export class DrizzleKitEngine {
         console.log(`\n✅ Migration generated: ${filepath}`);
         console.log(`   ${sqlStatements.length} SQL statement(s) with rollback blocks`);
       } finally {
-        await client.end();
+        await cleanup();
       }
     } catch (error) {
       console.error('❌ Error generating migration:', error.message);
@@ -402,18 +527,22 @@ export class DrizzleKitEngine {
   /**
    * Pattern-match a SQL statement to produce a rollback statement.
    * Handles the most common DDL operations; destructive ops get a manual comment.
+   * Dialect-aware: uses backticks for MySQL/SingleStore, double-quotes for PostgreSQL.
    */
   generateRollback(sql) {
     const upper = sql.toUpperCase().trim();
+    const q = this.dialect === 'mysql' || this.dialect === 'singlestore' ? '`' : '"';
 
     // ── CREATE TABLE ──
-    const createTable = sql.match(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(/i);
+    const createTable = sql.match(
+      new RegExp(`CREATE TABLE\\s+(?:IF NOT EXISTS\\s+)?(?:[${q}"'\`]?(\\w+)[${q}"'\`]?\\.)?[${q}"'\`]?(\\w+)[${q}"'\`]?\\s*\\(`, 'i')
+    );
     if (createTable) {
       const schema = createTable[1];
       const table = createTable[2];
       return schema
-        ? `DROP TABLE IF EXISTS "${schema}"."${table}";`
-        : `DROP TABLE IF EXISTS "${table}";`;
+        ? `DROP TABLE IF EXISTS ${q}${schema}${q}.${q}${table}${q};`
+        : `DROP TABLE IF EXISTS ${q}${table}${q};`;
     }
 
     // ── DROP TABLE ──
@@ -421,10 +550,32 @@ export class DrizzleKitEngine {
       return '-- Manual rollback required: recreate dropped table';
     }
 
+    // ── RENAME TABLE ──
+    // ALTER TABLE "old_name" RENAME TO "new_name"
+    const renameTable = sql.match(
+      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+RENAME TO\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+    );
+    if (renameTable && !upper.includes('RENAME COLUMN')) {
+      return `ALTER TABLE ${q}${renameTable[2]}${q} RENAME TO ${q}${renameTable[1]}${q};`;
+    }
+
+    // ── RENAME COLUMN ──
+    // ALTER TABLE "table" RENAME COLUMN "old_col" TO "new_col"
+    const renameCol = sql.match(
+      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+RENAME COLUMN\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+TO\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+    );
+    if (renameCol) {
+      return `ALTER TABLE ${q}${renameCol[1]}${q} RENAME COLUMN ${q}${renameCol[3]}${q} TO ${q}${renameCol[2]}${q};`;
+    }
+
     // ── ADD COLUMN ──
-    const addCol = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ADD COLUMN\s+"?(\w+)"?/i);
+    // MySQL omits the COLUMN keyword: ALTER TABLE `t` ADD `col` ...
+    // Negative lookahead prevents matching ADD CONSTRAINT, ADD INDEX, ADD FOREIGN KEY, etc.
+    const addCol = sql.match(
+      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+ADD\\s+(?:COLUMN\\s+)?(?!CONSTRAINT\\b|INDEX\\b|UNIQUE\\b|FOREIGN\\b|PRIMARY\\b|CHECK\\b|KEY\\b|PARTITION\\b)[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+    );
     if (addCol) {
-      return `ALTER TABLE "${addCol[1]}" DROP COLUMN "${addCol[2]}";`;
+      return `ALTER TABLE ${q}${addCol[1]}${q} DROP COLUMN ${q}${addCol[2]}${q};`;
     }
 
     // ── DROP COLUMN ──
@@ -432,39 +583,55 @@ export class DrizzleKitEngine {
       return '-- Manual rollback required: recreate dropped column';
     }
 
-    // ── SET NOT NULL ──
-    const setNN = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ALTER COLUMN\s+"?(\w+)"?\s+SET NOT NULL/i);
+    // ── SET NOT NULL (PostgreSQL-style) ──
+    const setNN = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+SET NOT NULL/i);
     if (setNN) {
-      return `ALTER TABLE "${setNN[1]}" ALTER COLUMN "${setNN[2]}" DROP NOT NULL;`;
+      return `ALTER TABLE ${q}${setNN[1]}${q} ALTER COLUMN ${q}${setNN[2]}${q} DROP NOT NULL;`;
+    }
+
+    // ── MODIFY COLUMN (MySQL-style for NOT NULL changes) ──
+    const modifyCol = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+MODIFY\s+(?:COLUMN\s+)?[`"']?(\w+)[`"']?/i);
+    if (modifyCol) {
+      return '-- Manual rollback required: revert MODIFY COLUMN change';
     }
 
     // ── DROP NOT NULL ──
-    const dropNN = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ALTER COLUMN\s+"?(\w+)"?\s+DROP NOT NULL/i);
+    const dropNN = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+DROP NOT NULL/i);
     if (dropNN) {
-      return `ALTER TABLE "${dropNN[1]}" ALTER COLUMN "${dropNN[2]}" SET NOT NULL;`;
+      return `ALTER TABLE ${q}${dropNN[1]}${q} ALTER COLUMN ${q}${dropNN[2]}${q} SET NOT NULL;`;
     }
 
     // ── SET DEFAULT ──
-    const setDef = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ALTER COLUMN\s+"?(\w+)"?\s+SET DEFAULT/i);
+    const setDef = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+SET DEFAULT/i);
     if (setDef) {
-      return `ALTER TABLE "${setDef[1]}" ALTER COLUMN "${setDef[2]}" DROP DEFAULT;`;
+      return `ALTER TABLE ${q}${setDef[1]}${q} ALTER COLUMN ${q}${setDef[2]}${q} DROP DEFAULT;`;
     }
 
     // ── DROP DEFAULT ──
-    const dropDef = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ALTER COLUMN\s+"?(\w+)"?\s+DROP DEFAULT/i);
+    const dropDef = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+DROP DEFAULT/i);
     if (dropDef) {
       return '-- Manual rollback required: set default back to previous value';
     }
 
-    // ── ALTER COLUMN TYPE ──
-    if (upper.includes('ALTER COLUMN') && upper.includes('SET DATA TYPE')) {
+    // ── ALTER COLUMN TYPE (PostgreSQL) / MODIFY COLUMN (MySQL) ──
+    if ((upper.includes('ALTER COLUMN') && upper.includes('SET DATA TYPE')) ||
+        (upper.includes('MODIFY') && upper.includes('COLUMN'))) {
       return '-- Manual rollback required: revert column type change';
     }
 
     // ── CREATE INDEX ──
-    const createIdx = sql.match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF NOT EXISTS\s+)?"?(\w+)"?/i);
+    // MySQL requires ON <table>: DROP INDEX `idx` ON `table`
+    // PostgreSQL uses: DROP INDEX IF EXISTS "idx"
+    const createIdx = sql.match(
+      new RegExp(`CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:CONCURRENTLY\\s+)?(?:IF NOT EXISTS\\s+)?[${q}"'\`]?(\\w+)[${q}"'\`]?(?:\\s+ON\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?)?`, 'i')
+    );
     if (createIdx) {
-      return `DROP INDEX IF EXISTS "${createIdx[1]}";`;
+      const idxName = createIdx[1];
+      const tableName = createIdx[2];
+      if ((this.dialect === 'mysql' || this.dialect === 'singlestore') && tableName) {
+        return `DROP INDEX ${q}${idxName}${q} ON ${q}${tableName}${q};`;
+      }
+      return `DROP INDEX IF EXISTS ${q}${idxName}${q};`;
     }
 
     // ── DROP INDEX ──
@@ -473,9 +640,11 @@ export class DrizzleKitEngine {
     }
 
     // ── ADD CONSTRAINT ──
-    const addConst = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ADD CONSTRAINT\s+"?(\w+)"?/i);
+    const addConst = sql.match(
+      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+ADD CONSTRAINT\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+    );
     if (addConst) {
-      return `ALTER TABLE "${addConst[1]}" DROP CONSTRAINT "${addConst[2]}";`;
+      return `ALTER TABLE ${q}${addConst[1]}${q} DROP CONSTRAINT ${q}${addConst[2]}${q};`;
     }
 
     // ── DROP CONSTRAINT ──
@@ -483,44 +652,44 @@ export class DrizzleKitEngine {
       return '-- Manual rollback required: recreate dropped constraint';
     }
 
-    // ── CREATE TYPE (enum) ──
-    const createType = sql.match(/CREATE TYPE\s+"?(\w+)"?/i);
+    // ── CREATE TYPE (enum) — PostgreSQL only ──
+    const createType = sql.match(/CREATE TYPE\s+[`"']?(\w+)[`"']?/i);
     if (createType) {
-      return `DROP TYPE IF EXISTS "${createType[1]}";`;
+      return `DROP TYPE IF EXISTS ${q}${createType[1]}${q};`;
     }
 
-    // ── ALTER TYPE ADD VALUE (enum) ──
+    // ── ALTER TYPE ADD VALUE (enum) — PostgreSQL only ──
     if (upper.includes('ALTER TYPE') && upper.includes('ADD VALUE')) {
       return '-- Enum value additions cannot be rolled back in PostgreSQL';
     }
 
-    // ── ENABLE ROW LEVEL SECURITY ──
-    const enableRLS = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+ENABLE ROW LEVEL SECURITY/i);
+    // ── ENABLE ROW LEVEL SECURITY — PostgreSQL only ──
+    const enableRLS = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ENABLE ROW LEVEL SECURITY/i);
     if (enableRLS) {
-      return `ALTER TABLE "${enableRLS[1]}" DISABLE ROW LEVEL SECURITY;`;
+      return `ALTER TABLE ${q}${enableRLS[1]}${q} DISABLE ROW LEVEL SECURITY;`;
     }
 
-    // ── DISABLE ROW LEVEL SECURITY ──
-    const disableRLS = sql.match(/ALTER TABLE\s+"?(\w+)"?\s+DISABLE ROW LEVEL SECURITY/i);
+    // ── DISABLE ROW LEVEL SECURITY — PostgreSQL only ──
+    const disableRLS = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+DISABLE ROW LEVEL SECURITY/i);
     if (disableRLS) {
-      return `ALTER TABLE "${disableRLS[1]}" ENABLE ROW LEVEL SECURITY;`;
+      return `ALTER TABLE ${q}${disableRLS[1]}${q} ENABLE ROW LEVEL SECURITY;`;
     }
 
-    // ── CREATE POLICY ──
-    const createPol = sql.match(/CREATE POLICY\s+"?([^"]+)"?\s+ON\s+"?(\w+)"?/i);
+    // ── CREATE POLICY — PostgreSQL only ──
+    const createPol = sql.match(/CREATE POLICY\s+[`"']?([^`"']+)[`"']?\s+ON\s+[`"']?(\w+)[`"']?/i);
     if (createPol) {
-      return `DROP POLICY IF EXISTS "${createPol[1]}" ON "${createPol[2]}";`;
+      return `DROP POLICY IF EXISTS ${q}${createPol[1]}${q} ON ${q}${createPol[2]}${q};`;
     }
 
-    // ── DROP POLICY ──
+    // ── DROP POLICY — PostgreSQL only ──
     if (upper.startsWith('DROP POLICY')) {
       return '-- Manual rollback required: recreate dropped policy';
     }
 
-    // ── CREATE SEQUENCE ──
-    const createSeq = sql.match(/CREATE SEQUENCE\s+(?:IF NOT EXISTS\s+)?"?(\w+)"?/i);
+    // ── CREATE SEQUENCE — PostgreSQL only ──
+    const createSeq = sql.match(/CREATE SEQUENCE\s+(?:IF NOT EXISTS\s+)?[`"']?(\w+)[`"']?/i);
     if (createSeq) {
-      return `DROP SEQUENCE IF EXISTS "${createSeq[1]}";`;
+      return `DROP SEQUENCE IF EXISTS ${q}${createSeq[1]}${q};`;
     }
 
     // ── DROP SEQUENCE ──
@@ -568,18 +737,53 @@ export class DrizzleKitEngine {
     const changesetName = filename.replace(/^\d+_/, '').replace(/\.sql$/, '');
     const author = this.getCurrentUser();
 
-    const statementsWithDelimiter = statements.map(
-      stmt => stmt.replace(/\s*-->\s*statement-breakpoint\s*$/, '').trim() + '\n--> statement-breakpoint'
-    );
+    // PostgreSQL uses splitStatements:false with a custom endDelimiter of
+    // '--> statement-breakpoint', so both forward and rollback lines need it.
+    // MySQL/SingleStore/SQLite use splitStatements:true (the default) and split
+    // on ';', so '--> statement-breakpoint' is just noise (or worse, invalid SQL).
+    const useCustomDelimiter = this.dialect === 'postgresql';
 
-    const rollbackWithDelimiter = rollbackStatements.map(stmt => {
-      const clean = stmt.replace(/;\s*-->\s*statement-breakpoint\s*$/, '').replace(/;$/, '').trim();
-      return `--rollback ${clean};\n--rollback --> statement-breakpoint`;
+    const statementsWithDelimiter = statements.map(stmt => {
+      const clean = stmt.replace(/\s*-->\s*statement-breakpoint\s*$/, '').trim();
+      return useCustomDelimiter ? clean + '\n--> statement-breakpoint' : clean;
     });
+
+    // Rollbacks must execute in reverse order: if forward creates tables then
+    // adds FKs then creates indexes, rollback must drop indexes, then FKs, then tables.
+    let reversedRollbacks = [...rollbackStatements].reverse();
+
+    // MySQL/SingleStore: indexes back foreign keys, so we must DROP CONSTRAINT
+    // before DROP INDEX, otherwise MySQL refuses with "needed in a foreign key
+    // constraint". Re-sort so: DROP CONSTRAINT → DROP INDEX → DROP TABLE → rest.
+    if (this.dialect === 'mysql' || this.dialect === 'singlestore') {
+      const priority = (s) => {
+        const u = s.toUpperCase();
+        if (u.includes('DROP CONSTRAINT') || u.includes('DROP FOREIGN KEY')) return 0;
+        if (u.includes('DROP INDEX')) return 1;
+        if (u.includes('DROP TABLE')) return 2;
+        return 3;
+      };
+      reversedRollbacks = reversedRollbacks.sort((a, b) => priority(a) - priority(b));
+    }
+
+    const rollbackWithDelimiter = reversedRollbacks.map(stmt => {
+      const clean = stmt.replace(/;\s*-->\s*statement-breakpoint\s*$/, '').replace(/;$/, '').trim();
+      // PostgreSQL uses custom endDelimiter, so rollbacks need the same delimiter.
+      // MySQL/SQLite/SingleStore use splitStatements:true (default) and split on ';',
+      // so '--> statement-breakpoint' would be sent as invalid SQL.
+      if (useCustomDelimiter) {
+        return `--rollback ${clean};\n--rollback --> statement-breakpoint`;
+      }
+      return `--rollback ${clean};`;
+    });
+
+    const changesetHeader = useCustomDelimiter
+      ? `--changeset ${author}:${changesetName} splitStatements:false endDelimiter:--> statement-breakpoint`
+      : `--changeset ${author}:${changesetName}`;
 
     const content = `--liquibase formatted sql
 
---changeset ${author}:${changesetName} splitStatements:false endDelimiter:--> statement-breakpoint
+${changesetHeader}
 
 ${statementsWithDelimiter.join('\n\n')}
 

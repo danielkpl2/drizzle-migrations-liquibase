@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-17
+
+### Added
+
+- **Multi-database support** — the drizzle-kit engine now supports **PostgreSQL, MySQL, SQLite, and SingleStore** — every SQL database that drizzle-kit supports. The custom engine remains PostgreSQL-only.
+
+- **`dialect` config option + `--dialect` CLI flag** — explicitly set the database dialect (`postgresql`, `mysql`, `sqlite`, `singlestore`). Auto-detected from the database URL scheme if omitted.
+
+- **MySQL postinstall patch** — drizzle-kit v0.31's `pushMySQLSchema` has two bugs that prevent it from working correctly via the public API:
+  1. The `logSuggestionsAndReturn` function for MySQL never calls `fromJson()` to convert structured statement objects to raw SQL (all other dialects do)
+  2. `pushMySQLSchema` never calls `filterStatements()` to remove false-positive diffs caused by MySQL type aliasing (`serial` ↔ `bigint unsigned`, `boolean` ↔ `tinyint(1)`, redundant `UNIQUE KEY` on serial columns)
+
+  A postinstall script (`scripts/patch-drizzle-kit.mjs`) automatically fixes both bugs. The patch is idempotent (safe to run multiple times), version-aware (only patches v0.31), and non-destructive (exits cleanly if drizzle-kit isn't installed).
+
+  > **Note**: If you have existing patches on `node_modules/drizzle-kit/api.js` (e.g. via `patch-package`), installation order matters. See the README for details.
+
+- **Dialect-aware Liquibase runner** — the runner now uses the correct JDBC driver per dialect: `org.postgresql.Driver` for PostgreSQL, `org.mariadb.jdbc.Driver` for MySQL/SingleStore (bundled with Liquibase npm), `org.sqlite.JDBC` for SQLite. MySQL URLs are output as `jdbc:mariadb://` for compatibility with the bundled driver.
+
+- **MySQL rollback patterns** — rollback generation now handles MySQL-specific DDL: `RENAME TABLE`, `RENAME COLUMN`, `MODIFY COLUMN`, `ADD/DROP INDEX`, `ADD/DROP FOREIGN KEY`, `ADD/DROP PRIMARY KEY`, `ADD/DROP CHECK`, `ADD/DROP UNIQUE INDEX`, and more.
+
+- **50 new tests** for MySQL data type mappings, dialect-aware config, URL detection, rollback patterns, and engine integration. Total: **605 tests** across 8 suites.
+
+- `mysql2` and `pg` added as optional peer dependencies (only the driver for your dialect is needed).
+
+### Fixed
+
+- **Rollback statements now generated in reverse order** — rollback statements were previously written in the same order as the forward (apply) statements. This is incorrect: rollbacks must execute in reverse dependency order (e.g. drop indexes → drop foreign keys → drop tables, not create order). Fixed in both the custom engine and the drizzle-kit engine.
+
+### Changed
+
+- **drizzle-kit engine refactored** — unified all dialects through the push path. Removed snapshot-based fallback code that was no longer needed after the MySQL patch.
+
+- **drizzle-kit v1.0.0-beta is PostgreSQL-only** — v1's `drizzle-kit/api-postgres` only exports the PostgreSQL push function. For MySQL, SQLite, and SingleStore, install `drizzle-kit@^0.31.0`. The engine auto-detects the appropriate API.
+
 ## [1.1.0] - 2026-02-15
 
 ### Added
@@ -78,6 +112,7 @@ Initial public release.
 - `.env` / `.env.local` auto-loading for database credentials
 - 390 tests across 7 test suites
 
+[1.2.0]: https://github.com/danielkpl2/drizzle-migrations-liquibase/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/danielkpl2/drizzle-migrations-liquibase/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/danielkpl2/drizzle-migrations-liquibase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/danielkpl2/drizzle-migrations-liquibase/releases/tag/v1.0.0

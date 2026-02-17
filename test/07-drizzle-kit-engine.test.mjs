@@ -46,6 +46,7 @@ function makeEngine(overrides = {}) {
   engine.schemaDir = engine.config.schemaDir;
   engine.migrationsDir = engine.config.migrationsDir;
   engine.databaseUrl = engine.config.databaseUrl;
+  engine.dialect = overrides.dialect ?? 'postgresql';
   return engine;
 }
 
@@ -70,6 +71,36 @@ suite('generateRollback — CREATE TABLE');
     e.generateRollback('CREATE TABLE widgets (\n  id serial\n)'),
     'DROP TABLE IF EXISTS "widgets";',
     'unquoted table name'
+  );
+}
+
+suite('generateRollback — RENAME TABLE');
+{
+  const e = makeEngine();
+  eq(
+    e.generateRollback('ALTER TABLE "users" RENAME TO "members"'),
+    'ALTER TABLE "members" RENAME TO "users";',
+    'basic RENAME TABLE'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE old_name RENAME TO new_name'),
+    'ALTER TABLE "new_name" RENAME TO "old_name";',
+    'unquoted RENAME TABLE'
+  );
+}
+
+suite('generateRollback — RENAME COLUMN');
+{
+  const e = makeEngine();
+  eq(
+    e.generateRollback('ALTER TABLE "users" RENAME COLUMN "email" TO "email_address"'),
+    'ALTER TABLE "users" RENAME COLUMN "email_address" TO "email";',
+    'basic RENAME COLUMN'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE users RENAME COLUMN old_col TO new_col'),
+    'ALTER TABLE "users" RENAME COLUMN "new_col" TO "old_col";',
+    'unquoted RENAME COLUMN'
   );
 }
 
@@ -937,6 +968,265 @@ suite('getExcludedTables — deduplication');
   eq(changelogCount, 1, 'no duplicate databasechangelog');
   assert(tables.includes('my_table'), 'custom table included');
   assert(tables.includes('databasechangeloglock'), 'lock table still included');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MySQL dialect — rollback generation with backtick quoting
+// ═══════════════════════════════════════════════════════════════
+
+suite('MySQL generateRollback — CREATE TABLE');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('CREATE TABLE `users` (\n  `id` int AUTO_INCREMENT PRIMARY KEY\n)'),
+    'DROP TABLE IF EXISTS `users`;',
+    'backtick-quoted CREATE TABLE'
+  );
+  eq(
+    e.generateRollback('CREATE TABLE IF NOT EXISTS `products` (\n  `id` int\n)'),
+    'DROP TABLE IF EXISTS `products`;',
+    'CREATE TABLE IF NOT EXISTS'
+  );
+  eq(
+    e.generateRollback('CREATE TABLE widgets (\n  id int\n)'),
+    'DROP TABLE IF EXISTS `widgets`;',
+    'unquoted table name'
+  );
+}
+
+suite('MySQL generateRollback — ADD COLUMN');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('ALTER TABLE `users` ADD COLUMN `age` int NOT NULL'),
+    'ALTER TABLE `users` DROP COLUMN `age`;',
+    'backtick ADD COLUMN'
+  );
+}
+
+suite('MySQL generateRollback — CREATE INDEX');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('CREATE INDEX `users_email_idx` ON `users` (`email`)'),
+    'DROP INDEX `users_email_idx` ON `users`;',
+    'backtick CREATE INDEX'
+  );
+  eq(
+    e.generateRollback('CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`)'),
+    'DROP INDEX `users_email_unique` ON `users`;',
+    'backtick CREATE UNIQUE INDEX'
+  );
+}
+
+suite('MySQL generateRollback — ADD CONSTRAINT');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('ALTER TABLE `orders` ADD CONSTRAINT `orders_user_fk` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`)'),
+    'ALTER TABLE `orders` DROP CONSTRAINT `orders_user_fk`;',
+    'backtick ADD CONSTRAINT'
+  );
+}
+
+suite('MySQL generateRollback — DROP TABLE (manual)');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('DROP TABLE `users`'),
+    '-- Manual rollback required: recreate dropped table',
+    'DROP TABLE needs manual'
+  );
+}
+
+suite('MySQL generateRollback — MODIFY COLUMN');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('ALTER TABLE `users` MODIFY COLUMN `name` varchar(200) NOT NULL'),
+    '-- Manual rollback required: revert MODIFY COLUMN change',
+    'MODIFY COLUMN needs manual'
+  );
+}
+
+suite('MySQL generateRollback — RENAME TABLE');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('ALTER TABLE `users` RENAME TO `members`'),
+    'ALTER TABLE `members` RENAME TO `users`;',
+    'backtick RENAME TABLE'
+  );
+}
+
+suite('MySQL generateRollback — RENAME COLUMN');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  eq(
+    e.generateRollback('ALTER TABLE `users` RENAME COLUMN `email` TO `email_address`'),
+    'ALTER TABLE `users` RENAME COLUMN `email_address` TO `email`;',
+    'backtick RENAME COLUMN'
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MySQL dialect — filterExcludedStatements with backticks
+// ═══════════════════════════════════════════════════════════════
+
+suite('MySQL filterExcludedStatements — backtick-quoted tables');
+{
+  const engine = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  const { filtered, removedCount } = engine.filterExcludedStatements([
+    'DROP TABLE `databasechangelog`;',
+    'DROP TABLE `databasechangeloglock`;',
+    'CREATE TABLE `users` (`id` int);',
+  ]);
+  eq(removedCount, 2, 'removed backtick-quoted Liquibase tables');
+  eq(filtered.length, 1, 'kept non-Liquibase table');
+  includes(filtered[0], 'users', 'kept users table');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MySQL buildLiquibaseStatements — pairing with backtick rollbacks
+// ═══════════════════════════════════════════════════════════════
+
+suite('MySQL buildLiquibaseStatements');
+{
+  const e = makeEngine({ dialect: 'mysql', databaseUrl: 'mysql://root@localhost:3306/test' });
+  const { statements, rollbackStatements } = e.buildLiquibaseStatements([
+    'CREATE TABLE `users` (`id` int AUTO_INCREMENT PRIMARY KEY, `name` varchar(100));',
+    'CREATE INDEX `users_name_idx` ON `users` (`name`);',
+  ]);
+  eq(statements.length, 2, '2 statements');
+  eq(rollbackStatements.length, 2, '2 rollbacks');
+  includes(rollbackStatements[0], 'DROP TABLE IF EXISTS `users`', 'CREATE TABLE rollback');
+  includes(rollbackStatements[1], 'DROP INDEX `users_name_idx` ON `users`', 'CREATE INDEX rollback');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Dialect resolution — init()
+// ═══════════════════════════════════════════════════════════════
+
+suite('dialect — auto-detect from PostgreSQL URL');
+{
+  const e = new DrizzleKitEngine({
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'postgresql://localhost:5432/test',
+      engine: 'drizzle-kit',
+      diff: {},
+    },
+  });
+  await e.init();
+  eq(e.dialect, 'postgresql', 'auto-detected postgresql');
+}
+
+suite('dialect — auto-detect from MySQL URL');
+{
+  const e = new DrizzleKitEngine({
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'mysql://root@localhost:3306/test',
+      engine: 'drizzle-kit',
+      diff: {},
+    },
+  });
+  await e.init();
+  eq(e.dialect, 'mysql', 'auto-detected mysql');
+}
+
+suite('dialect — config dialect overrides auto-detect');
+{
+  const e = new DrizzleKitEngine({
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'postgresql://localhost:5432/test',
+      engine: 'drizzle-kit',
+      dialect: 'mysql',
+      diff: {},
+    },
+  });
+  await e.init();
+  eq(e.dialect, 'mysql', 'config dialect wins');
+}
+
+suite('dialect — CLI dialect overrides config');
+{
+  const e = new DrizzleKitEngine({
+    dialect: 'mysql',
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'postgresql://localhost:5432/test',
+      engine: 'drizzle-kit',
+      dialect: 'postgresql',
+      diff: {},
+    },
+  });
+  await e.init();
+  eq(e.dialect, 'mysql', 'CLI dialect wins over config');
+}
+
+suite('dialect — invalid dialect throws');
+{
+  const e = new DrizzleKitEngine({
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'postgresql://localhost:5432/test',
+      engine: 'drizzle-kit',
+      dialect: 'mongodb',
+      diff: {},
+    },
+  });
+  let threw = false;
+  try { await e.init(); } catch (err) {
+    threw = true;
+    includes(err.message, 'Invalid dialect', 'error has "Invalid dialect"');
+  }
+  assert(threw, 'init() threw for invalid dialect');
+}
+
+suite('dialect — defaults to postgresql when no URL');
+{
+  const e = new DrizzleKitEngine({
+    config: {
+      schemaDir: '/tmp/fake-schema',
+      schemaIndexFile: 'index.ts',
+      migrationsDir,
+      masterChangelog: changelogPath,
+      timestampFormat: 'YYYYMMDDHHmmss',
+      author: 'test-user',
+      databaseUrl: 'some-custom-url',
+      engine: 'drizzle-kit',
+      diff: {},
+    },
+  });
+  await e.init();
+  eq(e.dialect, 'postgresql', 'defaults to postgresql');
 }
 
 // ═══════════════════════════════════════════════════════════════

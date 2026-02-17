@@ -12,7 +12,18 @@
 import { spawnSync } from 'child_process';
 import { existsSync } from 'fs';
 import { dirname, resolve } from 'path';
-import { loadConfig, parseDatabaseUrl, rewriteJdbcForDocker } from './config.mjs';
+import { loadConfig, parseDatabaseUrl, rewriteJdbcForDocker, detectDialectFromUrl } from './config.mjs';
+
+// ---------------------------------------------------------------------------
+// JDBC driver mapping per dialect
+// ---------------------------------------------------------------------------
+
+const DIALECT_DRIVER = {
+  postgresql: 'org.postgresql.Driver',
+  mysql: 'org.mariadb.jdbc.Driver',      // MariaDB driver is MySQL-compatible & bundled with Liquibase
+  singlestore: 'org.mariadb.jdbc.Driver',
+  sqlite: 'org.sqlite.JDBC',
+};
 
 // ---------------------------------------------------------------------------
 // Core runner
@@ -42,6 +53,11 @@ export async function runLiquibase(command, args = [], options = {}) {
     throw new Error(`Failed to parse DATABASE_URL: ${databaseUrl}`);
   }
 
+  // Resolve dialect for driver and schema defaults
+  const dialect = config.dialect || detectDialectFromUrl(databaseUrl) || 'postgresql';
+  const driver = DIALECT_DRIVER[dialect] || DIALECT_DRIVER.postgresql;
+  const defaultSchemaName = dialect === 'postgresql' ? 'public' : undefined;
+
   const mode = config.liquibaseMode || 'node';
 
   // Determine the searchPath (directory containing master-changelog.xml)
@@ -55,8 +71,8 @@ export async function runLiquibase(command, args = [], options = {}) {
   const lbConfig = {
     changeLogFile,
     url: mode === 'docker' ? rewriteJdbcForDocker(parsed.jdbc) : parsed.jdbc,
-    driver: 'org.postgresql.Driver',
-    defaultSchemaName: 'public',
+    driver,
+    defaultSchemaName,
     username: parsed.username,
     password: parsed.password,
     searchPath,
@@ -80,15 +96,18 @@ export async function runLiquibase(command, args = [], options = {}) {
 
 async function runNode(lbConfig, command, extraArgs) {
   const { Liquibase } = await import('liquibase');
-  const lb = new Liquibase({
+  const lbOpts = {
     changeLogFile: lbConfig.changeLogFile,
     url: lbConfig.url,
     username: lbConfig.username,
     password: lbConfig.password,
     driver: lbConfig.driver,
     searchPath: lbConfig.searchPath,
-    defaultSchemaName: lbConfig.defaultSchemaName,
-  });
+  };
+  if (lbConfig.defaultSchemaName) {
+    lbOpts.defaultSchemaName = lbConfig.defaultSchemaName;
+  }
+  const lb = new Liquibase(lbOpts);
 
   if (typeof lb[command] !== 'function') {
     throw new Error(

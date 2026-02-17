@@ -1,6 +1,6 @@
 {
   "name": "drizzle-migrations-liquibase",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Eliminates Drizzle migration conflicts in team environments — bridges Drizzle ORM with Liquibase migration engine.",
   "type": "module",
   "keywords": [
@@ -42,6 +42,7 @@
   },
   "files": [
     "bin/",
+    "scripts/",
     "src/",
     "templates/",
     "AI-CONVERSION-GUIDE.md",
@@ -50,6 +51,7 @@
     "LICENSE"
   ],
   "scripts": {
+    "postinstall": "node scripts/patch-drizzle-kit.mjs",
     "generate": "node bin/cli.mjs generate",
     "generate:reverse": "node bin/cli.mjs generate --reverse",
     "update": "node bin/cli.mjs update",
@@ -62,13 +64,14 @@
   },
   "dependencies": {
     "jiti": "^2.4.0",
-    "pg": "^8.16.0",
     "ts-morph": "^25.0.0"
   },
   "peerDependencies": {
     "drizzle-kit": ">=0.31.0 || >=1.0.0-beta.1",
     "drizzle-orm": ">=0.30.0",
-    "liquibase": "^4.28.0"
+    "liquibase": "^4.28.0",
+    "mysql2": "^3.0.0",
+    "pg": "^8.0.0"
   },
   "peerDependenciesMeta": {
     "drizzle-kit": {
@@ -76,12 +79,20 @@
     },
     "liquibase": {
       "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
     }
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.9",
-    "drizzle-orm": "^0.44.0",
-    "liquibase": "^4.28.1"
+    "drizzle-orm": "^0.39.3",
+    "liquibase": "^4.28.1",
+    "mysql2": "^3.17.2",
+    "pg": "^8.16.0"
   },
   "engines": {
     "node": ">=18"

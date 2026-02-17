@@ -20,6 +20,16 @@ const DEFAULTS = {
   schemaIndexFile: 'index.ts',
 
   /**
+   * Database dialect: 'postgresql' | 'mysql' | 'sqlite' | 'singlestore'
+   *   null (default) — auto-detect from DATABASE_URL scheme
+   *   postgresql     — PostgreSQL (pg driver)
+   *   mysql          — MySQL / MariaDB (mysql2 driver)
+   *   sqlite         — SQLite (better-sqlite3 / libsql driver)
+   *   singlestore    — SingleStore (mysql2 driver)
+   */
+  dialect: null,
+
+  /**
    * Diff engine: 'custom' | 'drizzle-kit'
    *   custom     — built-in AST-based parser + diff engine (default, PostgreSQL only)
    *   drizzle-kit — hooks into drizzle-kit's own serializer + diff algorithms
@@ -72,12 +82,31 @@ const DEFAULTS = {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a standard PostgreSQL connection URL into JDBC components.
+ * Detect dialect from a database URL scheme.
+ *
+ * Returns 'postgresql', 'mysql', or null if unrecognised.
+ */
+export function detectDialectFromUrl(dbUrl) {
+  if (!dbUrl) return null;
+  if (/^postgres(?:ql)?:\/\//i.test(dbUrl)) return 'postgresql';
+  if (/^mysql:\/\//i.test(dbUrl)) return 'mysql';
+  // SQLite URLs don't typically look like URLs (file paths / :memory:)
+  if (/^(?:file:|:memory:)/i.test(dbUrl) || dbUrl.endsWith('.db') || dbUrl.endsWith('.sqlite')) return 'sqlite';
+  return null;
+}
+
+/**
+ * Parse a database connection URL into JDBC components.
  *
  * Accepts:
- *   postgresql://user:pass@host:port/dbname
- *   postgres://user:pass@host:port/dbname
- *   postgresql://user:pass@host:port/dbname?sslmode=require
+ *   PostgreSQL:
+ *     postgresql://user:pass@host:port/dbname
+ *     postgres://user:pass@host:port/dbname
+ *     postgresql://user:pass@host:port/dbname?sslmode=require
+ *
+ *   MySQL:
+ *     mysql://user:pass@host:port/dbname
+ *     mysql://user:pass@host:port/dbname?ssl=true
  *
  * Returns { jdbc, username, password } or null on failure.
  */
@@ -89,29 +118,53 @@ export function parseDatabaseUrl(dbUrl) {
     return { jdbc: dbUrl, username: '', password: '' };
   }
 
-  const m = dbUrl.match(
+  // ── PostgreSQL ──
+  const pgMatch = dbUrl.match(
     /^postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:/]+):(\d+)\/([^?]+)(\?.*)?$/
   );
-  if (!m) return null;
+  if (pgMatch) {
+    const [, user, pass, host, port, dbname, queryString] = pgMatch;
+    const decodedUser = decodeURIComponent(user);
+    const decodedPass = decodeURIComponent(pass);
 
-  const [, user, pass, host, port, dbname, queryString] = m;
-  const decodedUser = decodeURIComponent(user);
-  const decodedPass = decodeURIComponent(pass);
+    const isLocal =
+      host.includes('127') ||
+      host.includes('localhost') ||
+      host.includes('host.docker.internal');
 
-  const isLocal =
-    host.includes('127') ||
-    host.includes('localhost') ||
-    host.includes('host.docker.internal');
+    let ssl = '';
+    if (!isLocal && (!queryString || !queryString.includes('sslmode'))) {
+      ssl = '&sslmode=require';
+    }
 
-  // Check if queryString already has sslmode
-  let ssl = '';
-  if (!isLocal && (!queryString || !queryString.includes('sslmode'))) {
-    ssl = '&sslmode=require';
+    const jdbc = `jdbc:postgresql://${host}:${port}/${dbname}?user=${encodeURIComponent(decodedUser)}&password=${encodeURIComponent(decodedPass)}${ssl}`;
+    return { jdbc, username: '', password: '' };
   }
 
-  const jdbc = `jdbc:postgresql://${host}:${port}/${dbname}?user=${encodeURIComponent(decodedUser)}&password=${encodeURIComponent(decodedPass)}${ssl}`;
+  // ── MySQL ──
+  const mysqlMatch = dbUrl.match(
+    /^mysql:\/\/([^:]*):?([^@]*)@([^:/]+):(\d+)\/([^?]+)(\?.*)?$/
+  );
+  if (mysqlMatch) {
+    const [, user, pass, host, port, dbname, queryString] = mysqlMatch;
+    const decodedUser = decodeURIComponent(user || 'root');
+    const decodedPass = decodeURIComponent(pass || '');
 
-  return { jdbc, username: '', password: '' };
+    const isLocal =
+      host.includes('127') ||
+      host.includes('localhost') ||
+      host.includes('host.docker.internal');
+
+    let ssl = '';
+    if (!isLocal && (!queryString || !queryString.includes('useSSL'))) {
+      ssl = '&useSSL=true';
+    }
+
+    const jdbc = `jdbc:mariadb://${host}:${port}/${dbname}?user=${encodeURIComponent(decodedUser)}&password=${encodeURIComponent(decodedPass)}${ssl}`;
+    return { jdbc, username: '', password: '' };
+  }
+
+  return null;
 }
 
 /**
@@ -206,4 +259,4 @@ export async function loadConfig(projectRoot) {
   return config;
 }
 
-export default { loadConfig, parseDatabaseUrl, rewriteJdbcForDocker, formatTimestamp };
+export default { loadConfig, parseDatabaseUrl, rewriteJdbcForDocker, formatTimestamp, detectDialectFromUrl };

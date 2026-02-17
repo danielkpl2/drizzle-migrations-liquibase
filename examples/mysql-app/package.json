@@ -1,0 +1,15 @@
+{
+  "name": "mysql-app-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node ../../bin/cli.mjs generate --engine drizzle-kit",
+    "update": "node ../../bin/cli.mjs update",
+    "status": "node ../../bin/cli.mjs status"
+  },
+  "devDependencies": {
+    "drizzle-orm": ">=0.31.0",
+    "drizzle-kit": ">=0.31.0",
+    "mysql2": "^3.17.0"
+  }
+}

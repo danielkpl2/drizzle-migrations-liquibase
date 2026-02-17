@@ -1089,7 +1089,11 @@ export class SchemaDiffGenerator {
         stmt.replace(/\s*-->\s*statement-breakpoint\s*$/, '').trim() + '\n--> statement-breakpoint'
       );
 
-      const rollbackWithDelimiter = rollbackStatements.map((stmt) => {
+      // Rollbacks must execute in reverse order: if forward creates tables then
+      // adds FKs then creates indexes, rollback must drop indexes, then FKs, then tables.
+      const reversedRollbacks = [...rollbackStatements].reverse();
+
+      const rollbackWithDelimiter = reversedRollbacks.map((stmt) => {
         const clean = stmt.replace(/;\s*-->\s*statement-breakpoint\s*$/, '').replace(/;$/, '').trim();
         return `--rollback ${clean};\n--rollback --> statement-breakpoint`;
       });

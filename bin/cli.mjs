@@ -164,6 +164,7 @@ async function runGenerate(args) {
   let customName = null;
   let reverse = false;
   let engine = null;
+  let dialect = null;
   let excludeTables = [];
   let schemas = [];
 
@@ -175,6 +176,10 @@ async function runGenerate(args) {
       engine = args[++i]; // consume next arg as engine value
     } else if (arg.startsWith('--engine=')) {
       engine = arg.split('=')[1];
+    } else if (arg === '--dialect' || arg === '-d') {
+      dialect = args[++i];
+    } else if (arg.startsWith('--dialect=')) {
+      dialect = arg.split('=')[1];
     } else if (arg === '--exclude-tables') {
       // Comma-separated list: --exclude-tables audit_log,temp_data
       const val = args[++i];
@@ -206,6 +211,7 @@ async function runGenerate(args) {
       projectRoot: process.cwd(),
       excludeTables,
       schemas,
+      dialect,
     });
     await generator.run();
   } else {
@@ -250,6 +256,7 @@ Commands:
   generate [name]              Generate a migration from Drizzle schema ↔ DB diff
     --reverse, -r              Generate migration for objects in DB but not in schema
     --engine, -e <engine>      Diff engine: 'custom' (default) or 'drizzle-kit'
+    --dialect, -d <dialect>    Database dialect: postgresql, mysql, sqlite, singlestore
     --exclude-tables <list>    Comma-separated tables to exclude (drizzle-kit engine)
     --schemas <list>           Comma-separated schemas to include (default: public)
 
@@ -270,6 +277,7 @@ Examples:
   npx drizzle-liquibase init
   npx drizzle-liquibase generate add_users_table
   npx drizzle-liquibase generate add_users_table --engine drizzle-kit
+  npx drizzle-liquibase generate --engine drizzle-kit --dialect mysql
   npx drizzle-liquibase generate --engine drizzle-kit --exclude-tables audit_log,staging
   npx drizzle-liquibase generate --engine drizzle-kit --schemas public,custom_schema
   npx drizzle-liquibase generate --reverse

@@ -15,6 +15,7 @@ import {
   parseDatabaseUrl,
   rewriteJdbcForDocker,
   formatTimestamp,
+  detectDialectFromUrl,
 } from '../src/config.mjs';
 import { suite, assert, eq, includes, summary } from './helpers.mjs';
 
@@ -169,6 +170,67 @@ suite('loadConfig — defaults applied for missing keys');
   eq(config.diff.includePolicies, true, 'default includePolicies');
   eq(config.diff.modifyPolicies, false, 'default modifyPolicies');
   eq(config.diff.dropOrphanPolicies, false, 'default dropOrphanPolicies');
+}
+
+// ─── parseDatabaseUrl — MySQL URLs ──────────────────────────────
+
+suite('parseDatabaseUrl — standard MySQL URL');
+{
+  const result = parseDatabaseUrl('mysql://myuser:mypass@localhost:3306/mydb');
+  assert(result !== null, 'returns non-null');
+  includes(result.jdbc, 'jdbc:mariadb://localhost:3306/mydb', 'JDBC prefix');
+  includes(result.jdbc, 'user=myuser', 'user param');
+  includes(result.jdbc, 'password=mypass', 'password param');
+  assert(!result.jdbc.includes('useSSL'), 'no SSL for localhost');
+}
+
+suite('parseDatabaseUrl — MySQL remote host adds SSL');
+{
+  const result = parseDatabaseUrl('mysql://u:p@db.example.com:3306/prod');
+  assert(result !== null, 'returns non-null');
+  includes(result.jdbc, 'useSSL=true', 'SSL appended for remote');
+}
+
+suite('parseDatabaseUrl — MySQL with no password');
+{
+  const result = parseDatabaseUrl('mysql://root:@localhost:3306/drizzle_test');
+  assert(result !== null, 'handles empty password');
+  includes(result.jdbc, 'jdbc:mariadb://localhost:3306/drizzle_test', 'JDBC prefix');
+  includes(result.jdbc, 'user=root', 'user param');
+}
+
+suite('parseDatabaseUrl — MySQL URL-encoded characters');
+{
+  const result = parseDatabaseUrl('mysql://user%40host:p%40ss@localhost:3306/db');
+  assert(result !== null, 'handles encoded chars');
+  includes(result.jdbc, 'user%40host', 'user re-encoded');
+}
+
+// ─── detectDialectFromUrl ───────────────────────────────────────
+
+suite('detectDialectFromUrl — PostgreSQL URLs');
+{
+  eq(detectDialectFromUrl('postgresql://u:p@localhost:5432/db'), 'postgresql', 'postgresql://');
+  eq(detectDialectFromUrl('postgres://u:p@localhost:5432/db'), 'postgresql', 'postgres://');
+}
+
+suite('detectDialectFromUrl — MySQL URLs');
+{
+  eq(detectDialectFromUrl('mysql://u:p@localhost:3306/db'), 'mysql', 'mysql://');
+}
+
+suite('detectDialectFromUrl — SQLite paths');
+{
+  eq(detectDialectFromUrl(':memory:'), 'sqlite', ':memory:');
+  eq(detectDialectFromUrl('file:test.db'), 'sqlite', 'file: protocol');
+  eq(detectDialectFromUrl('/path/to/data.db'), 'sqlite', '.db extension');
+  eq(detectDialectFromUrl('/path/to/data.sqlite'), 'sqlite', '.sqlite extension');
+}
+
+suite('detectDialectFromUrl — null and unknown');
+{
+  eq(detectDialectFromUrl(null), null, 'null input');
+  eq(detectDialectFromUrl('redis://localhost:6379'), null, 'unknown scheme');
 }
 
 // ─── Summary ────────────────────────────────────────────────────
