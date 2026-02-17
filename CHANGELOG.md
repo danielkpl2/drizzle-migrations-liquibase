@@ -27,7 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **50 new tests** for MySQL data type mappings, dialect-aware config, URL detection, rollback patterns, and engine integration. Total: **605 tests** across 8 suites.
 
-- `mysql2` and `pg` added as optional peer dependencies (only the driver for your dialect is needed).
+- **SQLite engine connection** — full SQLite support via `better-sqlite3` + `drizzle-orm/better-sqlite3`. The `generate` command connects to the SQLite database file, introspects the schema, diffs, and produces Liquibase-formatted migrations with rollbacks. SQLite JDBC URL parsing (`file:./path.db` → `jdbc:sqlite:./path.db`) added to config.
+
+- **SQLite example app** — `examples/sqlite-app/` demonstrates the full lifecycle: schema definition with `sqliteTable()`, migration generation, Liquibase apply, schema changes, second migration, and rollback.
+
+- `mysql2`, `pg`, and `better-sqlite3` added as optional peer dependencies (only the driver for your dialect is needed).
+
+> **Note (SQLite + `liquibaseMode: 'node'`)**: The `liquibase` npm package bundles a SQLite JDBC driver but not its SLF4J dependency. You must manually add `slf4j-api` and `slf4j-nop` JARs to Liquibase's `internal/lib/` directory. See the README for details.
 
 ### Fixed
 

@@ -160,6 +160,42 @@ export default {
 }
 ```
 
+#### SQLite setup (Liquibase node mode)
+
+SQLite requires two additional pieces beyond the standard install:
+
+1. **Node.js driver** — install `better-sqlite3` alongside `drizzle-orm` in your project:
+
+   ```bash
+   npm install -D better-sqlite3
+   ```
+
+2. **SLF4J JARs for Liquibase** — the `liquibase` npm package bundles a SQLite JDBC driver (`sqlite-jdbc.jar`), but that driver depends on [SLF4J](https://www.slf4j.org/) at runtime, which is **not** bundled. Without it, Liquibase commands (`update`, `rollback`, `status`, etc.) will fail with:
+
+   ```
+   Caused by: java.lang.NoClassDefFoundError: org/slf4j/LoggerFactory
+   ```
+
+   **Fix**: Download two small JARs from Maven Central and place them in Liquibase's internal lib directory:
+
+   ```bash
+   # Find where Liquibase stores its JARs
+   LIQUIBASE_LIB="$(dirname $(node -e "console.log(require.resolve('liquibase'))"))/dist/liquibase/internal/lib"
+
+   # Download SLF4J API + NOP binding (~70 KB total)
+   curl -L -o "$LIQUIBASE_LIB/slf4j-api-2.0.13.jar" \
+     https://repo1.maven.org/maven2/org/slf4j/slf4j-api/2.0.13/slf4j-api-2.0.13.jar
+
+   curl -L -o "$LIQUIBASE_LIB/slf4j-nop-2.0.13.jar" \
+     https://repo1.maven.org/maven2/org/slf4j/slf4j-nop/2.0.13/slf4j-nop-2.0.13.jar
+   ```
+
+   - `slf4j-api` is the logging API that the SQLite JDBC driver requires
+   - `slf4j-nop` is a no-op binding that silences SLF4J's logging (you can substitute `slf4j-simple` if you want to see JDBC debug output)
+   - These files live inside `node_modules/` and will need to be re-added after a clean `npm install` — consider adding the `curl` commands to a `postinstall` script
+
+   > **Not needed for CLI or Docker modes** — this only affects `liquibaseMode: 'node'`. The Liquibase CLI binary and Docker image ship with SLF4J included.
+
 ### Engine Comparison
 
 | | Custom (default) | Drizzle Kit |
@@ -169,7 +205,7 @@ export default {
 | **DB introspection** | Direct SQL queries to `information_schema` | drizzle-kit's built-in introspector |
 | **Diff algorithm** | Custom structural comparison | drizzle-kit's own identity-based diff (~25K lines) |
 | **Constraint matching** | By column set (ignores names) | By constraint name (name mismatch = drift) |
-| **Extra dependencies** | None (all bundled) | `drizzle-kit` + dialect driver (`pg`, `mysql2`, etc.) |
+| **Extra dependencies** | None (all bundled) | `drizzle-kit` + dialect driver (`pg`, `mysql2`, `better-sqlite3`, etc.) |
 | **Reverse mode** | ✅ `--reverse` flag | ❌ Not supported |
 | **Rename detection** | ❌ Treats as drop + create | ✅ Interactive prompt for renames |
 | **Sequences** | ❌ | ✅ |
@@ -540,6 +576,14 @@ For MySQL, it uses the MariaDB JDBC driver (bundled with Liquibase):
 ```
 jdbc:mariadb://host:port/dbname?user=X&password=Y
 ```
+
+For SQLite, it converts to the SQLite JDBC format:
+
+```
+jdbc:sqlite:./path/to/database.db
+```
+
+SQLite databases are file-based — the database file is created automatically if it doesn't exist. See [SQLite setup (Liquibase node mode)](#sqlite-setup-liquibase-node-mode) below for an additional dependency required when using `liquibaseMode: 'node'`.
 
 You can also provide a JDBC URL directly if preferred.
 

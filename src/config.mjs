@@ -164,6 +164,16 @@ export function parseDatabaseUrl(dbUrl) {
     return { jdbc, username: '', password: '' };
   }
 
+  // ── SQLite ──
+  // Accepts: file:./path.db, /absolute/path.db, ./relative/path.db, :memory:, *.sqlite
+  const isSqlite = /^(?:file:|:memory:)/i.test(dbUrl) || dbUrl.endsWith('.db') || dbUrl.endsWith('.sqlite');
+  if (isSqlite) {
+    // Strip file: prefix, resolve to absolute path (unless :memory:)
+    const dbPath = dbUrl.replace(/^file:/, '');
+    const jdbc = `jdbc:sqlite:${dbPath}`;
+    return { jdbc, username: '', password: '' };
+  }
+
   return null;
 }
 

@@ -385,10 +385,21 @@ export class DrizzleKitEngine {
     }
 
     if (dialect === 'sqlite') {
-      throw new Error(
-        'SQLite support is not yet implemented.\n' +
-        'SQLite requires a file path or :memory: as the database URL.'
-      );
+      // better-sqlite3 is the standard driver for Drizzle + SQLite.
+      // URL can be a file path, file:./path, or :memory:
+      const bs3Module = await importFromProject('better-sqlite3', this._projectRoot);
+      const BetterSqlite3 = bs3Module.default ?? bs3Module;
+      const dbPath = url.replace(/^file:/, '') || ':memory:';
+      const sqlite = new BetterSqlite3(dbPath);
+
+      const dorm = await importFromProject('drizzle-orm/better-sqlite3', this._projectRoot);
+      const db = dorm.drizzle(sqlite);
+
+      return {
+        db,
+        cleanup: () => sqlite.close(),
+        databaseName: null,
+      };
     }
 
     throw new Error(`Unsupported dialect: ${dialect}`);

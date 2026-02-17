@@ -70,6 +70,7 @@
     "drizzle-kit": ">=0.31.0 || >=1.0.0-beta.1",
     "drizzle-orm": ">=0.30.0",
     "liquibase": "^4.28.0",
+    "better-sqlite3": "^11.0.0",
     "mysql2": "^3.0.0",
     "pg": "^8.0.0"
   },
@@ -84,6 +85,9 @@
       "optional": true
     },
     "mysql2": {
+      "optional": true
+    },
+    "better-sqlite3": {
       "optional": true
     }
   },
