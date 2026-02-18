@@ -5,5 +5,7 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
-    <!-- Include all SQL migration files in chronological order -->
+    <!-- Migration files will be added here by the generate command -->
+    <include file="migrations/20260218114853_schema_diff_migration.sql"/>
+    <include file="migrations/20260218115353_schema_diff_migration.sql"/>
 </databaseChangeLog>

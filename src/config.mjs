@@ -84,11 +84,12 @@ const DEFAULTS = {
 /**
  * Detect dialect from a database URL scheme.
  *
- * Returns 'postgresql', 'mysql', or null if unrecognised.
+ * Returns 'postgresql', 'mysql', 'singlestore', 'sqlite', or null if unrecognised.
  */
 export function detectDialectFromUrl(dbUrl) {
   if (!dbUrl) return null;
   if (/^postgres(?:ql)?:\/\//i.test(dbUrl)) return 'postgresql';
+  if (/^singlestore:\/\//i.test(dbUrl)) return 'singlestore';
   if (/^mysql:\/\//i.test(dbUrl)) return 'mysql';
   // SQLite URLs don't typically look like URLs (file paths / :memory:)
   if (/^(?:file:|:memory:)/i.test(dbUrl) || dbUrl.endsWith('.db') || dbUrl.endsWith('.sqlite')) return 'sqlite';
@@ -137,13 +138,15 @@ export function parseDatabaseUrl(dbUrl) {
       ssl = '&sslmode=require';
     }
 
-    const jdbc = `jdbc:postgresql://${host}:${port}/${dbname}?user=${encodeURIComponent(decodedUser)}&password=${encodeURIComponent(decodedPass)}${ssl}`;
-    return { jdbc, username: '', password: '' };
+    const jdbc = `jdbc:postgresql://${host}:${port}/${dbname}${ssl ? '?sslmode=require' : ''}`;
+    return { jdbc, username: decodedUser, password: decodedPass };
   }
 
-  // ── MySQL ──
-  const mysqlMatch = dbUrl.match(
-    /^mysql:\/\/([^:]*):?([^@]*)@([^:/]+):(\d+)\/([^?]+)(\?.*)?$/
+  // ── MySQL / SingleStore ──
+  // Normalise singlestore:// → mysql:// so one regex covers both
+  const mysqlNormUrl = dbUrl.replace(/^singlestore:\/\//i, 'mysql://');
+  const mysqlMatch = mysqlNormUrl.match(
+    /^mysql:\/\/([^:]*):?(.+)?@([^:/]+):(\d+)\/([^?]+)(\?.*)?$/
   );
   if (mysqlMatch) {
     const [, user, pass, host, port, dbname, queryString] = mysqlMatch;
@@ -160,8 +163,9 @@ export function parseDatabaseUrl(dbUrl) {
       ssl = '&useSSL=true';
     }
 
-    const jdbc = `jdbc:mariadb://${host}:${port}/${dbname}?user=${encodeURIComponent(decodedUser)}&password=${encodeURIComponent(decodedPass)}${ssl}`;
-    return { jdbc, username: '', password: '' };
+    // SingleStore uses the MariaDB JDBC driver (MySQL wire-protocol compatible)
+    const jdbc = `jdbc:mariadb://${host}:${port}/${dbname}${ssl ? '?useSSL=true' : ''}`;
+    return { jdbc, username: decodedUser, password: decodedPass };
   }
 
   // ── SQLite ──

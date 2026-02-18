@@ -398,6 +398,9 @@ mysql://user:password@host:port/dbname
 
 # SQLite
 file:./path/to/database.db
+
+# SingleStore
+singlestore://user:password@host:port/dbname
 ```
 
 For PostgreSQL, it automatically converts to JDBC format for Liquibase:
@@ -416,6 +419,12 @@ For SQLite, it converts to the SQLite JDBC format:
 
 ```
 jdbc:sqlite:./path/to/database.db
+```
+
+For SingleStore, it uses the MariaDB JDBC driver (same as MySQL — SingleStore is MySQL wire-compatible):
+
+```
+jdbc:mariadb://host:port/dbname?user=X&password=Y
 ```
 
 SQLite databases are file-based — the database file is created automatically if it doesn't exist. See [SQLite setup (Liquibase node mode)](#sqlite-setup-liquibase-node-mode) for an additional dependency required when using `liquibaseMode: 'node'`.
@@ -929,15 +938,20 @@ npx drizzle-liquibase update
 
 ## AI-Assisted Migration Conversion
 
-If you have existing Drizzle Kit migrations and want an AI model (ChatGPT, Claude, Copilot, etc.) to convert them to Liquibase format, point it at:
+If you have existing Drizzle Kit migrations and want an AI model (ChatGPT, Claude, Copilot, etc.) to convert them to Liquibase format, pick the guide for your database dialect:
 
-```
-AI-CONVERSION-GUIDE.md
-```
+| Dialect | Guide |
+|---------|-------|
+| **PostgreSQL** | [AI-CONVERSION-GUIDE-POSTGRESQL.md](./AI-CONVERSION-GUIDE-POSTGRESQL.md) |
+| **MySQL** | [AI-CONVERSION-GUIDE-MYSQL.md](./AI-CONVERSION-GUIDE-MYSQL.md) |
+| **SQLite** | [AI-CONVERSION-GUIDE-SQLITE.md](./AI-CONVERSION-GUIDE-SQLITE.md) |
+| **SingleStore** | [AI-CONVERSION-GUIDE-SINGLESTORE.md](./AI-CONVERSION-GUIDE-SINGLESTORE.md) |
 
-This file contains the complete rule set, transformation table, rollback mappings, and worked examples that an AI needs to convert any Drizzle Kit `.sql` migration into a Liquibase-formatted file with proper rollback support.
+Each guide contains the complete rule set, transformation table, rollback mappings, and worked examples that an AI needs to convert Drizzle Kit `.sql` migrations into Liquibase-formatted files with proper rollback support — tailored to that dialect's capabilities and syntax.
 
-**Usage**: Paste or attach [AI-CONVERSION-GUIDE.md](./AI-CONVERSION-GUIDE.md) into your AI conversation along with your Drizzle Kit migration files. The AI will output correctly formatted Liquibase SQL files and the `master-changelog.xml` entries.
+> **SingleStore note**: Drizzle Kit uses a "copy to new table" strategy for many SingleStore schema changes (create temp table → copy data → drop original → rename). The SingleStore guide explains how to derive rollback statements from the migration itself — the INSERT...SELECT column list reveals the old table's columns, and the CREATE TABLE has their definitions. Some edge cases (type changes, column removals) still need manual review.
+
+**Usage**: Paste or attach the appropriate guide into your AI conversation along with your Drizzle Kit migration files. The AI will output correctly formatted Liquibase SQL files and the `master-changelog.xml` entries.
 
 See also [MIGRATION-FORMAT.md](./MIGRATION-FORMAT.md) for the full format specification.
 

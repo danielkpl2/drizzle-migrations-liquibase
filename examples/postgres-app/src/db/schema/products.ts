@@ -65,6 +65,8 @@ export const products = pgTable(
     price: numeric('price', { precision: 10, scale: 2 }).notNull(),
     categoryId: integer('category_id').references(() => categories.id),
     status: productStatusEnum('status').notNull().default('draft'),
+    weight: numeric('weight', { precision: 8, scale: 3 }),
+    stockQuantity: integer('stock_quantity').notNull().default(0),
     metadata: jsonb('metadata'),
     isActive: boolean('is_active').notNull().default(false),
     createdAt: timestamp('created_at').defaultNow().notNull(),

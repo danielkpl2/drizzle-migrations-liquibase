@@ -42,6 +42,9 @@ export const users = pgTable(
     email: varchar('email', { length: 255 }).notNull(),
     name: varchar('name', { length: 100 }),
     bio: text('bio'),
+    phone: varchar('phone', { length: 20 }),
+    address: text('address'),
+    dateOfBirth: timestamp('date_of_birth'),
     role: userRoleEnum('role').notNull().default('member'),
     isActive: boolean('is_active').notNull().default(true),
     tags: text('tags').array(),
@@ -73,4 +76,4 @@ export const users = pgTable(
       withCheck: sql`auth.uid() = public_id`,
     }),
   ]
-).enableRLS
+).enableRLS()

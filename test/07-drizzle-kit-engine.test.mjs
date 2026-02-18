@@ -147,6 +147,11 @@ suite('generateRollback — CREATE TYPE (enum)');
     'DROP TYPE IF EXISTS "mood";',
     'unquoted type name'
   );
+  eq(
+    e.generateRollback('CREATE TYPE "public"."discount_type" AS ENUM (\'percentage\', \'fixed_amount\')'),
+    'DROP TYPE IF EXISTS "public"."discount_type";',
+    'schema-qualified type name'
+  );
 }
 
 suite('generateRollback — CREATE POLICY');
@@ -672,7 +677,7 @@ suite('constructor — accepts options');
 suite('generateRollback — schema-qualified names');
 {
   const e = makeEngine();
-  // drizzle-kit sometimes emits schema-qualified names
+  // drizzle-kit sometimes emits schema-qualified names like "public"."table"
   eq(
     e.generateRollback('CREATE TABLE "public"."users" (\n  "id" serial\n)'),
     'DROP TABLE IF EXISTS "public"."users";',
@@ -682,6 +687,71 @@ suite('generateRollback — schema-qualified names');
     e.generateRollback('CREATE TABLE "users" (\n  "id" serial\n)'),
     'DROP TABLE IF EXISTS "users";',
     'no schema prefix — plain DROP'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" RENAME TO "members"'),
+    'ALTER TABLE "public"."members" RENAME TO "users";',
+    'schema-qualified RENAME TABLE'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" RENAME COLUMN "email" TO "email_address"'),
+    'ALTER TABLE "public"."users" RENAME COLUMN "email_address" TO "email";',
+    'schema-qualified RENAME COLUMN'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" ADD COLUMN "phone" varchar(20)'),
+    'ALTER TABLE "public"."users" DROP COLUMN "phone";',
+    'schema-qualified ADD COLUMN'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" ALTER COLUMN "name" SET NOT NULL'),
+    'ALTER TABLE "public"."users" ALTER COLUMN "name" DROP NOT NULL;',
+    'schema-qualified SET NOT NULL'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" ALTER COLUMN "name" DROP NOT NULL'),
+    'ALTER TABLE "public"."users" ALTER COLUMN "name" SET NOT NULL;',
+    'schema-qualified DROP NOT NULL'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" ALTER COLUMN "role" SET DEFAULT \'member\''),
+    'ALTER TABLE "public"."users" ALTER COLUMN "role" DROP DEFAULT;',
+    'schema-qualified SET DEFAULT'
+  );
+  eq(
+    e.generateRollback('CREATE INDEX "public"."users_email_idx" ON "public"."users" USING btree ("email")'),
+    'DROP INDEX IF EXISTS "public"."users_email_idx";',
+    'schema-qualified CREATE INDEX'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."products" ADD CONSTRAINT "products_cat_fk" FOREIGN KEY ("cat_id") REFERENCES "categories"("id")'),
+    'ALTER TABLE "public"."products" DROP CONSTRAINT "products_cat_fk";',
+    'schema-qualified ADD CONSTRAINT'
+  );
+  eq(
+    e.generateRollback('CREATE TYPE "public"."discount_type" AS ENUM (\'percentage\', \'fixed_amount\')'),
+    'DROP TYPE IF EXISTS "public"."discount_type";',
+    'schema-qualified CREATE TYPE'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY'),
+    'ALTER TABLE "public"."users" DISABLE ROW LEVEL SECURITY;',
+    'schema-qualified ENABLE RLS'
+  );
+  eq(
+    e.generateRollback('ALTER TABLE "public"."users" DISABLE ROW LEVEL SECURITY'),
+    'ALTER TABLE "public"."users" ENABLE ROW LEVEL SECURITY;',
+    'schema-qualified DISABLE RLS'
+  );
+  eq(
+    e.generateRollback('CREATE POLICY "users_select" ON "public"."users" FOR SELECT USING (true)'),
+    'DROP POLICY IF EXISTS "users_select" ON "public"."users";',
+    'schema-qualified CREATE POLICY'
+  );
+  eq(
+    e.generateRollback('CREATE SEQUENCE "public"."users_id_seq" AS integer'),
+    'DROP SEQUENCE IF EXISTS "public"."users_id_seq";',
+    'schema-qualified CREATE SEQUENCE'
   );
 }
 

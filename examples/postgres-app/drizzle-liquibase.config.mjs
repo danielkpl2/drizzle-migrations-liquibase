@@ -8,6 +8,12 @@ export default {
   liquibaseMode: 'node',
   author: 'test-user',
 
+  // PostgreSQL connection URL
+  databaseUrl: 'postgresql://postgres:postgres@127.0.0.1:54322/drizzle_liquibase_example',
+
+  // Use drizzle-kit engine for schema diffing
+  engine: 'drizzle-kit',
+
   // Tables to exclude from drizzle-kit engine output (in addition to
   // Liquibase's own tracking tables which are always excluded)
   excludeTables: [],

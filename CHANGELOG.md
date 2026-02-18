@@ -5,11 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.2.0] - 2026-02-17
+## [1.2.0] - 2026-02-18
 
 ### Added
 
 - **Multi-database support** — the drizzle-kit engine now supports **PostgreSQL, MySQL, SQLite, and SingleStore** — every SQL database that drizzle-kit supports. The custom engine remains PostgreSQL-only.
+
+- **SingleStore Helios support** — full end-to-end support for SingleStore's cloud-hosted columnar database, including:
+  - `singlestore://` URL scheme auto-detection (rewrites to `mysql://` for the mysql2 driver)
+  - Automatic SSL/TLS for non-local hosts (SingleStore Helios requires TLS)
+  - `?ssl={}` URL parameter stripping — SSL config is passed as a JS object to `mysql2.createPool()` to avoid URL-encoding issues
+  - `pushSingleStoreSchema` integration via drizzle-kit v0.31's public API
+  - Documented SingleStore limitations in `examples/singlestore-app/README.md`:
+    1. No secondary indexes on columnstore tables
+    2. No foreign key constraints
+    3. `serial` type creates two hash indexes (use `bigint().autoincrement().primaryKey()` instead)
+    4. Unique keys must include the shard key column
+    5. drizzle-kit's copy-to-new-table migration strategy can produce invalid `INSERT...SELECT` for newly added columns
+
+- **SingleStore example app** — `examples/singlestore-app/` demonstrates the full lifecycle: schema definition adapted for SingleStore's columnstore engine, initial migration generation, Liquibase apply, schema changes (new columns + new table), second migration, and rollback. Includes a comprehensive README documenting all caveats.
+
+- **PostgreSQL example app** — `examples/postgres-app/` (renamed from `nextjs-app`) demonstrates the drizzle-kit engine with PostgreSQL features including `pgEnum`, `pgPolicy`, `.enableRLS()`, foreign keys, GIN indexes, multi-column indexes, and RLS policies. Tested with local Supabase.
 
 - **`dialect` config option + `--dialect` CLI flag** — explicitly set the database dialect (`postgresql`, `mysql`, `sqlite`, `singlestore`). Auto-detected from the database URL scheme if omitted.
 
@@ -25,7 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **MySQL rollback patterns** — rollback generation now handles MySQL-specific DDL: `RENAME TABLE`, `RENAME COLUMN`, `MODIFY COLUMN`, `ADD/DROP INDEX`, `ADD/DROP FOREIGN KEY`, `ADD/DROP PRIMARY KEY`, `ADD/DROP CHECK`, `ADD/DROP UNIQUE INDEX`, and more.
 
-- **50 new tests** for MySQL data type mappings, dialect-aware config, URL detection, rollback patterns, and engine integration. Total: **605 tests** across 8 suites.
+- **63 new tests** for MySQL data type mappings, dialect-aware config, URL detection, rollback patterns, schema-qualified identifiers, and engine integration. Total: **618 tests** across 8 suites.
 
 - **SQLite engine connection** — full SQLite support via `better-sqlite3` + `drizzle-orm/better-sqlite3`. The `generate` command connects to the SQLite database file, introspects the schema, diffs, and produces Liquibase-formatted migrations with rollbacks. SQLite JDBC URL parsing (`file:./path.db` → `jdbc:sqlite:./path.db`) added to config.
 
@@ -36,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > **Note (SQLite + `liquibaseMode: 'node'`)**: The `liquibase` npm package bundles a SQLite JDBC driver but not its SLF4J dependency. You must manually add `slf4j-api` and `slf4j-nop` JARs to Liquibase's `internal/lib/` directory. See the README for details.
 
 ### Fixed
+
+- **Schema-qualified rollback generation** — rollback statements for schema-qualified identifiers (e.g. `"public"."users"`, `"public"."discount_type"`) now correctly preserve the full qualified name. Previously, the regex patterns only captured the first identifier, so `CREATE TYPE "public"."discount_type"` would generate `DROP TYPE IF EXISTS "public"` instead of the correct `DROP TYPE IF EXISTS "public"."discount_type"`. Fixed across all 14 rollback patterns: CREATE TABLE, RENAME TABLE, RENAME COLUMN, ADD COLUMN, SET/DROP NOT NULL, SET DEFAULT, CREATE INDEX, ADD CONSTRAINT, CREATE TYPE, ENABLE/DISABLE RLS, CREATE POLICY, and CREATE SEQUENCE. Added `_identSrc()` and `_fmtName()` helper methods for consistent schema-qualified identifier handling.
 
 - **Rollback statements now generated in reverse order** — rollback statements were previously written in the same order as the forward (apply) statements. This is incorrect: rollbacks must execute in reverse dependency order (e.g. drop indexes → drop foreign keys → drop tables, not create order). Fixed in both the custom engine and the drizzle-kit engine.
 

@@ -29,8 +29,8 @@ suite('parseDatabaseUrl — standard postgres URL');
   const result = parseDatabaseUrl('postgresql://myuser:mypass@localhost:5432/mydb');
   assert(result !== null, 'returns non-null');
   includes(result.jdbc, 'jdbc:postgresql://localhost:5432/mydb', 'JDBC prefix');
-  includes(result.jdbc, 'user=myuser', 'user param');
-  includes(result.jdbc, 'password=mypass', 'password param');
+  eq(result.username, 'myuser', 'user returned separately');
+  eq(result.password, 'mypass', 'password returned separately');
   // localhost → no sslmode appended
   assert(!result.jdbc.includes('sslmode'), 'no SSL for localhost');
 }
@@ -65,7 +65,8 @@ suite('parseDatabaseUrl — URL-encoded characters');
 {
   const result = parseDatabaseUrl('postgresql://user%40host:p%40ss@localhost:5432/db');
   assert(result !== null, 'handles encoded chars');
-  includes(result.jdbc, 'user%40host', 'user re-encoded');
+  eq(result.username, 'user@host', 'user decoded with @');
+  eq(result.password, 'p@ss', 'password decoded with @');
 }
 
 suite('parseDatabaseUrl — postgres:// alias');
@@ -179,8 +180,8 @@ suite('parseDatabaseUrl — standard MySQL URL');
   const result = parseDatabaseUrl('mysql://myuser:mypass@localhost:3306/mydb');
   assert(result !== null, 'returns non-null');
   includes(result.jdbc, 'jdbc:mariadb://localhost:3306/mydb', 'JDBC prefix');
-  includes(result.jdbc, 'user=myuser', 'user param');
-  includes(result.jdbc, 'password=mypass', 'password param');
+  eq(result.username, 'myuser', 'user returned separately');
+  eq(result.password, 'mypass', 'password returned separately');
   assert(!result.jdbc.includes('useSSL'), 'no SSL for localhost');
 }
 
@@ -196,14 +197,16 @@ suite('parseDatabaseUrl — MySQL with no password');
   const result = parseDatabaseUrl('mysql://root:@localhost:3306/drizzle_test');
   assert(result !== null, 'handles empty password');
   includes(result.jdbc, 'jdbc:mariadb://localhost:3306/drizzle_test', 'JDBC prefix');
-  includes(result.jdbc, 'user=root', 'user param');
+  eq(result.username, 'root', 'user returned separately');
+  eq(result.password, '', 'empty password');
 }
 
 suite('parseDatabaseUrl — MySQL URL-encoded characters');
 {
   const result = parseDatabaseUrl('mysql://user%40host:p%40ss@localhost:3306/db');
   assert(result !== null, 'handles encoded chars');
-  includes(result.jdbc, 'user%40host', 'user re-encoded');
+  eq(result.username, 'user@host', 'user decoded with @');
+  eq(result.password, 'p@ss', 'password decoded with @');
 }
 
 // ─── detectDialectFromUrl ───────────────────────────────────────

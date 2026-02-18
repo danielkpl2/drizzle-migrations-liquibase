@@ -362,17 +362,35 @@ export class DrizzleKitEngine {
     if (dialect === 'mysql' || dialect === 'singlestore') {
       const mysql2 = await importFromProject('mysql2/promise', this._projectRoot);
 
+      // Rewrite singlestore:// → mysql:// (mysql2 doesn't understand the singlestore scheme)
+      let mysqlUrl = url.replace(/^singlestore:\/\//i, 'mysql://');
+
+      // Strip ?ssl={} from URL — we'll pass it as a JS object instead
+      const hadSslParam = /[?&]ssl=/i.test(mysqlUrl);
+      mysqlUrl = mysqlUrl.replace(/[?&]ssl=[^&]*/g, '').replace(/\?$/, '');
+
       // Parse database name from URL
-      const dbNameMatch = url.match(/\/([^/?]+)(?:\?|$)/);
+      const dbNameMatch = mysqlUrl.match(/\/([^/?]+)(?:\?|$)/);
       const databaseName = dbNameMatch?.[1];
       if (!databaseName) {
         throw new Error(
           'Could not extract database name from DATABASE_URL.\n' +
-          'MySQL URL format: mysql://user:pass@host:port/dbname'
+          'URL format: mysql://user:pass@host:port/dbname  or  singlestore://user:pass@host:port/dbname'
         );
       }
 
-      const pool = mysql2.createPool(url);
+      // Detect whether to enable SSL: explicit ?ssl= param, or non-local host
+      const hostMatch = mysqlUrl.match(/@([^:/]+)/);
+      const host = hostMatch?.[1] ?? '';
+      const isLocal = /127|localhost|host\.docker\.internal/i.test(host);
+      const needsSsl = hadSslParam || !isLocal;
+
+      const poolOpts = { uri: mysqlUrl };
+      if (needsSsl) {
+        poolOpts.ssl = {};  // TLS with default CA — works for SingleStore Helios, PlanetScale, etc.
+      }
+
+      const pool = mysql2.createPool(poolOpts);
 
       const dorm = await importFromProject('drizzle-orm/mysql2', this._projectRoot);
       const db = dorm.drizzle({ client: pool });
@@ -536,6 +554,26 @@ export class DrizzleKitEngine {
   }
 
   /**
+   * Regex source for a SQL identifier that may be schema-qualified.
+   * Matches: "public"."users", `schema`.`table`, public.users, "users", users
+   * Always produces exactly one capture group.
+   */
+  _identSrc() {
+    return `((?:["'\`]?\\w+["'\`]?\\s*\\.\\s*)?["'\`]?\\w+["'\`]?)`;
+  }
+
+  /**
+   * Format a captured SQL identifier with dialect-appropriate quoting.
+   * Strips existing quotes, splits on '.', re-quotes each part.
+   * E.g. '"public"."users"' → '"public"."users"' (PG) or '`public`.`users`' (MySQL)
+   */
+  _fmtName(raw, q) {
+    const stripped = raw.replace(/["'`]/g, '').trim();
+    const parts = stripped.split(/\s*\.\s*/);
+    return parts.map(p => `${q}${p}${q}`).join('.');
+  }
+
+  /**
    * Pattern-match a SQL statement to produce a rollback statement.
    * Handles the most common DDL operations; destructive ops get a manual comment.
    * Dialect-aware: uses backticks for MySQL/SingleStore, double-quotes for PostgreSQL.
@@ -564,29 +602,35 @@ export class DrizzleKitEngine {
     // ── RENAME TABLE ──
     // ALTER TABLE "old_name" RENAME TO "new_name"
     const renameTable = sql.match(
-      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+RENAME TO\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+      new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+RENAME TO\\s+${this._identSrc()}`, 'i')
     );
     if (renameTable && !upper.includes('RENAME COLUMN')) {
-      return `ALTER TABLE ${q}${renameTable[2]}${q} RENAME TO ${q}${renameTable[1]}${q};`;
+      // RENAME TO takes an unqualified name; preserve any schema from the original
+      const oldParts = renameTable[1].replace(/["'`]/g, '').trim().split(/\s*\.\s*/);
+      const newBase = renameTable[2].replace(/["'`]/g, '').trim().split(/\s*\.\s*/).pop();
+      const schema = oldParts.length > 1 ? oldParts[0] : null;
+      const oldBase = oldParts[oldParts.length - 1];
+      const qualifiedNew = schema ? `${q}${schema}${q}.${q}${newBase}${q}` : `${q}${newBase}${q}`;
+      return `ALTER TABLE ${qualifiedNew} RENAME TO ${q}${oldBase}${q};`;
     }
 
     // ── RENAME COLUMN ──
     // ALTER TABLE "table" RENAME COLUMN "old_col" TO "new_col"
     const renameCol = sql.match(
-      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+RENAME COLUMN\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+TO\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+      new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+RENAME COLUMN\\s+["'\`]?(\\w+)["'\`]?\\s+TO\\s+["'\`]?(\\w+)["'\`]?`, 'i')
     );
     if (renameCol) {
-      return `ALTER TABLE ${q}${renameCol[1]}${q} RENAME COLUMN ${q}${renameCol[3]}${q} TO ${q}${renameCol[2]}${q};`;
+      return `ALTER TABLE ${this._fmtName(renameCol[1], q)} RENAME COLUMN ${q}${renameCol[3]}${q} TO ${q}${renameCol[2]}${q};`;
     }
 
     // ── ADD COLUMN ──
     // MySQL omits the COLUMN keyword: ALTER TABLE `t` ADD `col` ...
     // Negative lookahead prevents matching ADD CONSTRAINT, ADD INDEX, ADD FOREIGN KEY, etc.
     const addCol = sql.match(
-      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+ADD\\s+(?:COLUMN\\s+)?(?!CONSTRAINT\\b|INDEX\\b|UNIQUE\\b|FOREIGN\\b|PRIMARY\\b|CHECK\\b|KEY\\b|PARTITION\\b)[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+      new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ADD\\s+(?:COLUMN\\s+)?(?!CONSTRAINT\\b|INDEX\\b|UNIQUE\\b|FOREIGN\\b|PRIMARY\\b|CHECK\\b|KEY\\b|PARTITION\\b)["'\`]?(\\w+)["'\`]?`, 'i')
     );
     if (addCol) {
-      return `ALTER TABLE ${q}${addCol[1]}${q} DROP COLUMN ${q}${addCol[2]}${q};`;
+      return `ALTER TABLE ${this._fmtName(addCol[1], q)} DROP COLUMN ${q}${addCol[2]}${q};`;
     }
 
     // ── DROP COLUMN ──
@@ -595,9 +639,9 @@ export class DrizzleKitEngine {
     }
 
     // ── SET NOT NULL (PostgreSQL-style) ──
-    const setNN = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+SET NOT NULL/i);
+    const setNN = sql.match(new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ALTER COLUMN\\s+["'\`]?(\\w+)["'\`]?\\s+SET NOT NULL`, 'i'));
     if (setNN) {
-      return `ALTER TABLE ${q}${setNN[1]}${q} ALTER COLUMN ${q}${setNN[2]}${q} DROP NOT NULL;`;
+      return `ALTER TABLE ${this._fmtName(setNN[1], q)} ALTER COLUMN ${q}${setNN[2]}${q} DROP NOT NULL;`;
     }
 
     // ── MODIFY COLUMN (MySQL-style for NOT NULL changes) ──
@@ -607,15 +651,15 @@ export class DrizzleKitEngine {
     }
 
     // ── DROP NOT NULL ──
-    const dropNN = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+DROP NOT NULL/i);
+    const dropNN = sql.match(new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ALTER COLUMN\\s+["'\`]?(\\w+)["'\`]?\\s+DROP NOT NULL`, 'i'));
     if (dropNN) {
-      return `ALTER TABLE ${q}${dropNN[1]}${q} ALTER COLUMN ${q}${dropNN[2]}${q} SET NOT NULL;`;
+      return `ALTER TABLE ${this._fmtName(dropNN[1], q)} ALTER COLUMN ${q}${dropNN[2]}${q} SET NOT NULL;`;
     }
 
     // ── SET DEFAULT ──
-    const setDef = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ALTER COLUMN\s+[`"']?(\w+)[`"']?\s+SET DEFAULT/i);
+    const setDef = sql.match(new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ALTER COLUMN\\s+["'\`]?(\\w+)["'\`]?\\s+SET DEFAULT`, 'i'));
     if (setDef) {
-      return `ALTER TABLE ${q}${setDef[1]}${q} ALTER COLUMN ${q}${setDef[2]}${q} DROP DEFAULT;`;
+      return `ALTER TABLE ${this._fmtName(setDef[1], q)} ALTER COLUMN ${q}${setDef[2]}${q} DROP DEFAULT;`;
     }
 
     // ── DROP DEFAULT ──
@@ -634,15 +678,15 @@ export class DrizzleKitEngine {
     // MySQL requires ON <table>: DROP INDEX `idx` ON `table`
     // PostgreSQL uses: DROP INDEX IF EXISTS "idx"
     const createIdx = sql.match(
-      new RegExp(`CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:CONCURRENTLY\\s+)?(?:IF NOT EXISTS\\s+)?[${q}"'\`]?(\\w+)[${q}"'\`]?(?:\\s+ON\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?)?`, 'i')
+      new RegExp(`CREATE\\s+(?:UNIQUE\\s+)?INDEX\\s+(?:CONCURRENTLY\\s+)?(?:IF NOT EXISTS\\s+)?${this._identSrc()}(?:\\s+ON\\s+${this._identSrc()})?`, 'i')
     );
     if (createIdx) {
-      const idxName = createIdx[1];
-      const tableName = createIdx[2];
+      const idxName = this._fmtName(createIdx[1], q);
+      const tableName = createIdx[2] ? this._fmtName(createIdx[2], q) : null;
       if ((this.dialect === 'mysql' || this.dialect === 'singlestore') && tableName) {
-        return `DROP INDEX ${q}${idxName}${q} ON ${q}${tableName}${q};`;
+        return `DROP INDEX ${idxName} ON ${tableName};`;
       }
-      return `DROP INDEX IF EXISTS ${q}${idxName}${q};`;
+      return `DROP INDEX IF EXISTS ${idxName};`;
     }
 
     // ── DROP INDEX ──
@@ -652,10 +696,10 @@ export class DrizzleKitEngine {
 
     // ── ADD CONSTRAINT ──
     const addConst = sql.match(
-      new RegExp(`ALTER TABLE\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?\\s+ADD CONSTRAINT\\s+[${q}"'\`]?(\\w+)[${q}"'\`]?`, 'i')
+      new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ADD CONSTRAINT\\s+["'\`]?(\\w+)["'\`]?`, 'i')
     );
     if (addConst) {
-      return `ALTER TABLE ${q}${addConst[1]}${q} DROP CONSTRAINT ${q}${addConst[2]}${q};`;
+      return `ALTER TABLE ${this._fmtName(addConst[1], q)} DROP CONSTRAINT ${q}${addConst[2]}${q};`;
     }
 
     // ── DROP CONSTRAINT ──
@@ -664,9 +708,10 @@ export class DrizzleKitEngine {
     }
 
     // ── CREATE TYPE (enum) — PostgreSQL only ──
-    const createType = sql.match(/CREATE TYPE\s+[`"']?(\w+)[`"']?/i);
+    // Handles both unqualified (discount_type) and schema-qualified ("public"."discount_type")
+    const createType = sql.match(new RegExp(`CREATE TYPE\\s+${this._identSrc()}`, 'i'));
     if (createType) {
-      return `DROP TYPE IF EXISTS ${q}${createType[1]}${q};`;
+      return `DROP TYPE IF EXISTS ${this._fmtName(createType[1], q)};`;
     }
 
     // ── ALTER TYPE ADD VALUE (enum) — PostgreSQL only ──
@@ -675,21 +720,21 @@ export class DrizzleKitEngine {
     }
 
     // ── ENABLE ROW LEVEL SECURITY — PostgreSQL only ──
-    const enableRLS = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+ENABLE ROW LEVEL SECURITY/i);
+    const enableRLS = sql.match(new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+ENABLE ROW LEVEL SECURITY`, 'i'));
     if (enableRLS) {
-      return `ALTER TABLE ${q}${enableRLS[1]}${q} DISABLE ROW LEVEL SECURITY;`;
+      return `ALTER TABLE ${this._fmtName(enableRLS[1], q)} DISABLE ROW LEVEL SECURITY;`;
     }
 
     // ── DISABLE ROW LEVEL SECURITY — PostgreSQL only ──
-    const disableRLS = sql.match(/ALTER TABLE\s+[`"']?(\w+)[`"']?\s+DISABLE ROW LEVEL SECURITY/i);
+    const disableRLS = sql.match(new RegExp(`ALTER TABLE\\s+${this._identSrc()}\\s+DISABLE ROW LEVEL SECURITY`, 'i'));
     if (disableRLS) {
-      return `ALTER TABLE ${q}${disableRLS[1]}${q} ENABLE ROW LEVEL SECURITY;`;
+      return `ALTER TABLE ${this._fmtName(disableRLS[1], q)} ENABLE ROW LEVEL SECURITY;`;
     }
 
     // ── CREATE POLICY — PostgreSQL only ──
-    const createPol = sql.match(/CREATE POLICY\s+[`"']?([^`"']+)[`"']?\s+ON\s+[`"']?(\w+)[`"']?/i);
+    const createPol = sql.match(new RegExp(`CREATE POLICY\\s+["'\`]?([^"'\`]+)["'\`]?\\s+ON\\s+${this._identSrc()}`, 'i'));
     if (createPol) {
-      return `DROP POLICY IF EXISTS ${q}${createPol[1]}${q} ON ${q}${createPol[2]}${q};`;
+      return `DROP POLICY IF EXISTS ${q}${createPol[1]}${q} ON ${this._fmtName(createPol[2], q)};`;
     }
 
     // ── DROP POLICY — PostgreSQL only ──
@@ -698,9 +743,9 @@ export class DrizzleKitEngine {
     }
 
     // ── CREATE SEQUENCE — PostgreSQL only ──
-    const createSeq = sql.match(/CREATE SEQUENCE\s+(?:IF NOT EXISTS\s+)?[`"']?(\w+)[`"']?/i);
+    const createSeq = sql.match(new RegExp(`CREATE SEQUENCE\\s+(?:IF NOT EXISTS\\s+)?${this._identSrc()}`, 'i'));
     if (createSeq) {
-      return `DROP SEQUENCE IF EXISTS ${q}${createSeq[1]}${q};`;
+      return `DROP SEQUENCE IF EXISTS ${this._fmtName(createSeq[1], q)};`;
     }
 
     // ── DROP SEQUENCE ──
