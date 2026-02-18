@@ -3,7 +3,9 @@
 /**
  * patch-drizzle-kit.mjs
  *
- * Patches drizzle-kit v0.31's pushMySQLSchema to fix two bugs:
+ * Patches drizzle-kit v0.31's pushMySQLSchema to fix two bugs in the **public
+ * API** (`drizzle-kit/api` exports). Normal drizzle-kit CLI commands (push,
+ * generate, migrate) use separate internal code paths and are NOT affected.
  *
  * Bug 1: MySQL's logSuggestionsAndReturn2 function does NOT call fromJson() to
  * convert structured statement objects to raw SQL, unlike PostgreSQL, SQLite,
@@ -14,10 +16,11 @@
  * like tinyint↔boolean, bigint unsigned↔serial, and redundant serial unique keys.
  *
  * This script is idempotent — it will skip each patch individually if already
- * applied or if drizzle-kit is not installed.
+ * applied or if drizzle-kit is not installed. A backup of the original file is
+ * saved alongside the patched file (*.backup) for clean restoration on uninstall.
  */
 
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, copyFileSync } from 'fs';
 import { createRequire } from 'module';
 import { resolve } from 'path';
 
@@ -36,6 +39,13 @@ try {
 
 // ─── Read the file ──────────────────────────────────────────────────────────
 let source = readFileSync(apiPath, 'utf8');
+
+// ─── Save a backup of the original (only once) ─────────────────────────────
+const backupPath = apiPath + '.backup';
+if (!existsSync(backupPath)) {
+  copyFileSync(apiPath, backupPath);
+  console.log('[drizzle-liquibase] Saved backup of original drizzle-kit/api.js.');
+}
 
 // ─── Check if drizzle-kit even has the bug ──────────────────────────────────
 if (!source.includes('init_mysqlPushUtils')) {

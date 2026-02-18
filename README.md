@@ -520,6 +520,9 @@ This package includes a **postinstall patch** (`scripts/patch-drizzle-kit.mjs`) 
 - **Idempotent** — safe to run multiple times; skips if already applied
 - **Version-aware** — only patches drizzle-kit v0.31; skips gracefully if the code structure doesn't match
 - **Non-destructive** — exits with code 0 if drizzle-kit isn't installed or is a different version
+- **Cleanly reversible** — a backup of the original file is saved before patching; uninstalling this package automatically restores it via `preuninstall`
+
+> **Does this affect normal drizzle-kit usage?** No. These patches only fix the **public API** (`pushMySQLSchema` exported from `drizzle-kit/api`), which previously returned empty/incomplete results. Normal drizzle-kit CLI commands (`drizzle-kit push`, `generate`, `migrate`, etc.) use separate internal code paths that already have these fixes and are completely unaffected.
 
 > **⚠️ If you have other patches on `node_modules/drizzle-kit/api.js`**: This postinstall script modifies `drizzle-kit/api.js` in-place. If you're already patching that file (e.g. via `patch-package` or another postinstall script), be aware that installation order matters. Run `node scripts/patch-drizzle-kit.mjs` manually after your other patches if needed. The patch searches for specific code patterns — if another patch changes the surrounding code, the search may not match and the patch will be skipped with a warning.
 

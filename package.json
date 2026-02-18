@@ -52,6 +52,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/patch-drizzle-kit.mjs",
+    "preuninstall": "node scripts/unpatch-drizzle-kit.mjs",
     "generate": "node bin/cli.mjs generate",
     "generate:reverse": "node bin/cli.mjs generate --reverse",
     "update": "node bin/cli.mjs update",
