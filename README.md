@@ -338,7 +338,9 @@ export default {
 
 ### Schema Diff Options
 
-The `diff` object controls what the diff engine detects and generates. The defaults are deliberately conservative — they'll add new objects but won't drop anything that exists in the database but not in your schema. This prevents accidentally nuking indexes, constraints, or policies that were created manually or by other tools (e.g. Supabase Dashboard, raw SQL scripts).
+> **Custom engine only** — these options apply to the [custom engine](#custom-engine-default) (PostgreSQL). The [drizzle-kit engine](#drizzle-kit-engine) uses drizzle-kit's own diff logic and ignores these flags.
+
+The `diff` object controls what the custom engine detects and generates. The defaults are deliberately conservative — they'll add new objects but won't drop anything that exists in the database but not in your schema. This prevents accidentally nuking indexes, constraints, or policies that were created manually or by other tools (e.g. Supabase Dashboard, raw SQL scripts).
 
 | Flag | Default | Purpose |
 |------|---------|---------|
