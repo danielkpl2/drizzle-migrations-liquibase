@@ -300,13 +300,21 @@ export default {
   // REQUIRED — path to your Drizzle schema directory (contains index.ts with exports)
   schemaDir: './src/schema',
 
+  // Diff engine: 'custom' (default, PostgreSQL only) or 'drizzle-kit' (all dialects)
+  // engine: 'custom',
+
+  // Database dialect: 'postgresql' | 'mysql' | 'sqlite' | 'singlestore'
+  // Auto-detected from database URL if omitted.
+  // dialect: 'postgresql',
+
   // Directory where Liquibase migration files are generated
   migrationsDir: './liquibase/migrations',
 
   // Path to the master changelog XML
   masterChangelog: './liquibase/master-changelog.xml',
 
-  // Database connection URL (can also use DATABASE_URL env var)
+  // Database connection URL (can also use DATABASE_URL or MIGRATION_DATABASE_URL env var)
+  // Supports: postgresql://, mysql://, singlestore://, file:./path.db (SQLite)
   // databaseUrl: process.env.DATABASE_URL,
 
   // Timestamp format for migration filenames (default: YYYYMMDDHHmmss)

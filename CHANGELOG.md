@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-02-18
+
+### Fixed
+
+- **Config template updated for multi-database support** — the `drizzle-liquibase init` config template and CLI inline fallback now include `engine` and `dialect` options, and the database URL comment lists all supported formats (`postgresql://`, `mysql://`, `singlestore://`, `file:` for SQLite) instead of PostgreSQL only.
+
 ## [1.2.0] - 2026-02-18
 
 ### Added

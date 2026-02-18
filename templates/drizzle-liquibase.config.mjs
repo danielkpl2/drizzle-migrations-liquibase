@@ -17,6 +17,21 @@ export default {
   schemaDir: './src/schema',
 
   // =========================================================================
+  // Diff engine
+  // =========================================================================
+
+  // Which engine to use for schema diffing:
+  //   'custom'      — built-in AST-based engine (default, PostgreSQL only)
+  //   'drizzle-kit' — hooks into drizzle-kit's own diff algorithms
+  //                   (supports PostgreSQL, MySQL, SQLite, SingleStore)
+  // engine: 'custom',
+
+  // Database dialect: 'postgresql' | 'mysql' | 'sqlite' | 'singlestore'
+  // Auto-detected from the database URL scheme if omitted.
+  // Required for drizzle-kit engine with non-PostgreSQL databases.
+  // dialect: 'postgresql',
+
+  // =========================================================================
   // Migration output
   // =========================================================================
 
@@ -30,16 +45,18 @@ export default {
   // Database connection
   // =========================================================================
 
-  // PostgreSQL connection URL. Can also be set via:
+  // Database connection URL. Can also be set via:
   //   - MIGRATION_DATABASE_URL env var (preferred for migrations)
   //   - DATABASE_URL env var (fallback)
   //
-  // Standard format:
+  // Supported formats:
   //   postgresql://user:password@host:port/dbname
+  //   mysql://user:password@host:port/dbname
+  //   singlestore://user:password@host:port/dbname
+  //   file:./path/to/database.db   (SQLite)
   //
-  // The tool automatically converts this to JDBC format for Liquibase.
-  // You can also pass a JDBC URL directly if preferred:
-  //   jdbc:postgresql://host:port/dbname?user=X&password=Y
+  // The tool automatically converts these to JDBC format for Liquibase.
+  // You can also pass a JDBC URL directly if preferred.
   //
   // databaseUrl: process.env.DATABASE_URL,
 
